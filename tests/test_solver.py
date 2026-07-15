@@ -87,6 +87,19 @@ def test_fond_hodin_dodrzen(zakladni_schedule):
         assert souhrn["smeny"] <= config.pravidla.max_smen_mesic
 
 
+def test_ferove_rozdeleni_nocnich_vikendovych_a_celkovych_smen(zakladni_schedule):
+    # měkké pravidlo (váhy 5/3/4) - při rovnoměrné dostupnosti všech 12 lidí
+    # po celý měsíc by rozptyl mezi nejvytíženějším a nejméně vytíženým
+    # člověkem měl být malý, ne nutně nulový
+    _, schedule = zakladni_schedule
+    nocni = [schedule.souhrn_zamestnance(j)["nocni"] for j in schedule.jmena]
+    vikendy = [schedule.souhrn_zamestnance(j)["vikendy"] for j in schedule.jmena]
+    celkem = [schedule.souhrn_zamestnance(j)["smeny"] for j in schedule.jmena]
+    assert max(nocni) - min(nocni) <= 2
+    assert max(vikendy) - min(vikendy) <= 2
+    assert max(celkem) - min(celkem) <= 2
+
+
 def test_respektuje_nedostupnosti():
     dny_volna = [3, 4, 5, 6, 7, 8, 9]
     config = zakladni_config(nedostupnosti={"Alena": dny_volna})
