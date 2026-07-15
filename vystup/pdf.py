@@ -11,6 +11,7 @@ fungoval stejně i na serveru bez systémových fontů.
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import date
 from pathlib import Path
 
@@ -20,7 +21,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from solver.schedule import Schedule
 
@@ -30,6 +31,12 @@ BARVA_DENNI = colors.HexColor("#FFE699")
 BARVA_NOCNI = colors.HexColor("#9DC3E6")
 BARVA_VIKEND = colors.HexColor("#EDEDED")
 BARVA_MRIZKY = colors.HexColor("#BBBBBB")
+
+# Štítky směn ve stylu, na jaký je vedoucí zvyklá z Cygnusu (NAVRH.md:
+# "barevná mřížka jako v Cygnusu ... vedoucí to už zná"). Bez konkrétních
+# časů - ty Schedule nenese (jen D/N), přesné hodiny řeší Cygnus.
+STITEK_DENNI = "D1"
+STITEK_NOCNI = "N11"
 
 FONT = "DejaVuSans"
 FONT_TUCNY = "DejaVuSans-Bold"
@@ -48,14 +55,32 @@ def _je_vikend(schedule: Schedule, den: int) -> bool:
     return date(schedule.rok, schedule.mesic, den).weekday() >= 5
 
 
+def _razeni_klic(jmeno: str) -> str:
+    """Řadicí klíč necitlivý na diakritiku (č/ř/š/ž.. ať se řadí u c/r/s/z),
+    ať jde o abecední pořadí jako na nástěnce, i bez cs_CZ locale na serveru.
+    """
+    bez_diakritiky = unicodedata.normalize("NFKD", jmeno)
+    bez_diakritiky = "".join(z for z in bez_diakritiky if not unicodedata.combining(z))
+    return bez_diakritiky.casefold()
+
+
+def _serazena_jmena(schedule: Schedule) -> list[str]:
+    return sorted(schedule.jmena, key=_razeni_klic)
+
+
 def _hlavni_tabulka(schedule: Schedule) -> Table:
     dny = range(1, schedule.pocet_dni + 1)
+    jmena = _serazena_jmena(schedule)
 
     radek_cisel = ["Jméno"] + [str(d) for d in dny]
     radek_dnu = [""] + [CZ_DNY[date(schedule.rok, schedule.mesic, d).weekday()] for d in dny]
     data = [radek_cisel, radek_dnu]
-    for jmeno in schedule.jmena:
-        data.append([jmeno] + [schedule.smena_zamestnance(jmeno, d) or "" for d in dny])
+    for jmeno in jmena:
+        radek = []
+        for d in dny:
+            typ = schedule.smena_zamestnance(jmeno, d)
+            radek.append(STITEK_DENNI if typ == "D" else STITEK_NOCNI if typ == "N" else "")
+        data.append([jmeno] + radek)
 
     sloupec_jmeno = 38 * mm
     sirka_stranky = landscape(A4)[0] - 16 * mm
@@ -63,6 +88,7 @@ def _hlavni_tabulka(schedule: Schedule) -> Table:
     sirky = [sloupec_jmeno] + [sirka_dne] * schedule.pocet_dni
 
     tabulka = Table(data, colWidths=sirky, repeatRows=2)
+    posledni_radek = len(jmena) + 1
 
     styl = [
         ("GRID", (0, 0), (-1, -1), 0.4, BARVA_MRIZKY),
@@ -78,12 +104,15 @@ def _hlavni_tabulka(schedule: Schedule) -> Table:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
     ]
 
+    # Celý sloupec víkendového dne podbarvit šedě (ne jen hlavičku) - barvy
+    # směn se pak vykreslí přes to v dalším kroku, takže obsazené buňky
+    # zůstanou žluté/modré a jen prázdné (volno) dny zůstanou šedé.
     for i, den in enumerate(dny):
         sloupec = i + 1
         if _je_vikend(schedule, den):
-            styl.append(("BACKGROUND", (sloupec, 0), (sloupec, 1), BARVA_VIKEND))
+            styl.append(("BACKGROUND", (sloupec, 0), (sloupec, posledni_radek), BARVA_VIKEND))
 
-    for radek, jmeno in enumerate(schedule.jmena, start=2):
+    for radek, jmeno in enumerate(jmena, start=2):
         for i, den in enumerate(dny):
             sloupec = i + 1
             typ = schedule.smena_zamestnance(jmeno, den)
@@ -98,7 +127,7 @@ def _hlavni_tabulka(schedule: Schedule) -> Table:
 
 def _souhrn_tabulka(schedule: Schedule) -> Table:
     data = [["Jméno", "Směn", "Hodin", "Nočních", "Víkend"]]
-    for jmeno in schedule.jmena:
+    for jmeno in _serazena_jmena(schedule):
         s = schedule.souhrn_zamestnance(jmeno)
         data.append([jmeno, s["smeny"], s["smeny"] * 12, s["nocni"], s["vikendy"]])
 
@@ -133,13 +162,13 @@ def vygenerovat_pdf(schedule: Schedule, cesta: str | Path) -> None:
     prvky = [
         Paragraph(f"Rozpis služeb {nazev_mesice}", styly["Title"]),
         Paragraph(
-            "D = denní, N = noční, prázdné = volno. "
-            f"Řešení: {schedule.status}.",
+            f"{STITEK_DENNI} = denní, {STITEK_NOCNI} = noční, prázdné = volno, "
+            f"šedě = víkend. Řešení: {schedule.status}.",
             styly["Normal"],
         ),
         Spacer(1, 4 * mm),
-        _hlavni_tabulka(schedule),
+        KeepTogether(_hlavni_tabulka(schedule)),
         Spacer(1, 6 * mm),
-        _souhrn_tabulka(schedule),
+        KeepTogether(_souhrn_tabulka(schedule)),
     ]
     dokument.build(prvky)
