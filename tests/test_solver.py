@@ -135,6 +135,34 @@ def test_respektuje_nedostupnosti():
         assert schedule.smena_zamestnance("Alena", den) is None
 
 
+def test_respektuje_nedostupnosti_vice_lidi_najednou():
+    # reálný případ z config.yaml: víc lidí má současně různé požadavky
+    # na volno (dovolená přes víc dní i jednotlivé dny) - ověřuje, že se
+    # loop přes všechny položky v nedostupnosti neomezuje jen na jednu
+    pozadavky = {
+        "Alena": [3, 4, 5, 6, 7, 8, 9],
+        "Dana": [14, 15],
+        "Gustav": [20, 21, 22, 23, 24, 25, 26],
+        "Jitka": [1, 2],
+        "Karel": [28, 29, 30],
+    }
+    config = zakladni_config(nedostupnosti=pozadavky)
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    for jmeno, dny_volna in pozadavky.items():
+        for den in dny_volna:
+            assert schedule.smena_zamestnance(jmeno, den) is None, (
+                f"{jmeno} má sloužit {den}., ačkoli má ten den nahlášené volno"
+            )
+
+
+def test_config_odmitne_den_mimo_rozsah_mesice():
+    # srpen 2026 má 31 dní - den 32 je mimo měsíc
+    with pytest.raises(ConfigError):
+        zakladni_config(nedostupnosti={"Alena": [32]})
+    with pytest.raises(ConfigError):
+        zakladni_config(nedostupnosti={"Alena": [0]})
+
+
 def test_nekompatibilni_dvojice_se_vyhybaji_spolecne_smene():
     # měkké pravidlo (penalizace 8) - při dostatku lidí je vyhnutí se dvojici
     # "zadarmo", takže optimální řešení by je nemělo nikdy potkat pohromadě
