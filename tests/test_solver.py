@@ -125,11 +125,58 @@ def test_nekompatibilni_dvojice_se_vyhybaji_spolecne_smene():
 
 def test_nesplnitelne_zadani_vyhazuje_chybu_s_duvodem():
     # jen 2 lidé, ale potřeba min. 5 (3 denní + 2 noční) -> nesplnitelné
+    # (spustí obě heuristiky najednou, viz izolované testy níže)
     config = zakladni_config(zamestnanci=[{"jmeno": "Alena"}, {"jmeno": "Bedrich"}])
     with pytest.raises(NelzeSestavitError) as excinfo:
         generate_schedule(config, time_limit_s=5.0)
     assert excinfo.value.duvody
     assert any("Den" in d or "kapacita" in d.lower() for d in excinfo.value.duvody)
+
+
+def test_diagnostika_odhali_podstav_v_konkretnim_dni():
+    # 12 lidí je jinak dost, ale 10 z nich má týž den (15.) volno -> zbydou
+    # jen 2 dostupní, což nestačí na minimum 5. Celková kapacita fondu
+    # hodin přitom zůstává v pořádku, takže by se NEMĚLA spustit i
+    # kapacitní heuristika - izoluje to hlášku "Den X."
+    nedostupny_den = 15
+    nedostupnosti = {jmeno: [nedostupny_den] for jmeno in ZAMESTNANCI_12[:10]}
+    config = zakladni_config(nedostupnosti=nedostupnosti)
+    with pytest.raises(NelzeSestavitError) as excinfo:
+        generate_schedule(config, time_limit_s=5.0)
+    assert any(f"Den {nedostupny_den}." in d for d in excinfo.value.duvody)
+    assert not any("kapacita" in d.lower() for d in excinfo.value.duvody)
+
+
+def test_diagnostika_odhali_nedostatek_celkove_kapacity():
+    # 12 lidí je každý den plně k dispozici (žádná nedostupnost), ale fond
+    # hodin (max_smen_mesic=3) na pokrytí měsíce zdaleka nestačí -> izoluje
+    # to hlášku o celkové kapacitě bez jediné hlášky o konkrétním dni
+    config = zakladni_config(pravidla=dict(max_v_rade=3, max_smen_mesic=3))
+    with pytest.raises(NelzeSestavitError) as excinfo:
+        generate_schedule(config, time_limit_s=5.0)
+    assert any("kapacita" in d.lower() for d in excinfo.value.duvody)
+    assert not any("Den " in d for d in excinfo.value.duvody)
+
+
+def test_nesplnitelnost_bez_zjevne_priciny_pouzije_obecnou_hlasku():
+    # 6 lidí, denně musí pracovat přesně 5 (3 denní + 2 noční, min == max),
+    # tedy vždy odpočívá právě 1 člověk. Aby nikdo nepřesáhl max_v_rade=3
+    # dny v řadě, musel by si v každém 4denním okně odpočinout každý ze 6
+    # lidí - ale k dispozici jsou jen 4 volné sloty (1/den). Holubníkový
+    # princip -> nesplnitelné, avšak obě heuristiky to nezachytí (obsazení
+    # denně stačí, fond hodin na celý měsíc taky), takže musí spadnout do
+    # obecné fallback hlášky v core.py.
+    config = zakladni_config(
+        rok=2026,
+        mesic=2,  # únor 2026, 28 dní
+        zamestnanci=[{"jmeno": j} for j in ["A", "B", "C", "D", "E", "F"]],
+        obsazeni=dict(denni_min=3, denni_max=3, nocni_min=2, nocni_max=2),
+        pravidla=dict(max_v_rade=3, max_smen_mesic=28),
+    )
+    with pytest.raises(NelzeSestavitError) as excinfo:
+        generate_schedule(config, time_limit_s=15.0)
+    assert len(excinfo.value.duvody) == 1
+    assert "automatická diagnostika" in excinfo.value.duvody[0]
 
 
 def test_config_odmitne_neznameho_zamestnance_v_nedostupnostech():
