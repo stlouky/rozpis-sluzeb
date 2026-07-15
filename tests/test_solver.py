@@ -95,6 +95,21 @@ def test_respektuje_nedostupnosti():
         assert schedule.smena_zamestnance("Alena", den) is None
 
 
+def test_nekompatibilni_dvojice_se_vyhybaji_spolecne_smene():
+    # měkké pravidlo (penalizace 8) - při dostatku lidí je vyhnutí se dvojici
+    # "zadarmo", takže optimální řešení by je nemělo nikdy potkat pohromadě
+    config = zakladni_config(nekompatibilni_dvojice=[["Cyril", "Karel"]])
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    for den in range(1, schedule.pocet_dni + 1):
+        smena_cyril = schedule.smena_zamestnance("Cyril", den)
+        smena_karel = schedule.smena_zamestnance("Karel", den)
+        if smena_cyril is not None and smena_karel is not None:
+            assert smena_cyril != smena_karel, (
+                f"den {den}: Cyril i Karel slouží stejnou směnu ({smena_cyril}), "
+                "ačkoli je to neslučitelná dvojice a obsazení to nevyžaduje"
+            )
+
+
 def test_nesplnitelne_zadani_vyhazuje_chybu_s_duvodem():
     # jen 2 lidé, ale potřeba min. 5 (3 denní + 2 noční) -> nesplnitelné
     config = zakladni_config(zamestnanci=[{"jmeno": "Alena"}, {"jmeno": "Bedrich"}])
