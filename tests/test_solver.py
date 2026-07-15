@@ -102,6 +102,18 @@ def test_fond_hodin_dodrzen(zakladni_schedule):
         assert souhrn["smeny"] <= config.pravidla.max_smen_mesic
 
 
+def test_fond_hodin_omezuje_pod_prirozenou_rovnovahu():
+    # bez omezení (max_smen_mesic vysoko) by solver dal některým lidem
+    # 16 směn (ověřeno experimentálně) - přísnější strop 13 (těsně nad
+    # agregátním minimem 12*13=156 >= 155 potřebných) musí reálně useknout
+    # každého, ne jen náhodou sedět na přirozeném maximu jako v základním
+    # configu (tam je strop 15 blízko přirozenému stropu 16)
+    config = zakladni_config(pravidla=dict(max_v_rade=3, max_smen_mesic=13))
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    for jmeno in schedule.jmena:
+        assert schedule.souhrn_zamestnance(jmeno)["smeny"] <= 13
+
+
 def test_ferove_rozdeleni_nocnich_vikendovych_a_celkovych_smen(zakladni_schedule):
     # měkké pravidlo (váhy 5/3/4) - při rovnoměrné dostupnosti všech 12 lidí
     # po celý měsíc by rozptyl mezi nejvytíženějším a nejméně vytíženým
