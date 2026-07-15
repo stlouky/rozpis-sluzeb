@@ -17,6 +17,7 @@ Python 3.12+, běh a testy VŽDY přes .venv (.venv/bin/python -m pytest)
 Tvrdá:
 - denní směna (D): 3–4 lidi, noční (N): přesně 2 — platí každý den vč. víkendů a svátků
 - po noční NESMÍ následovat denní další den (N→D zakázáno, N→N ok)
+- max 2 noční v řadě, po nich povinně 2 dny volna (3 noční za sebou zakázáno)
 - max 3 směny v řadě, pak min 1 den volna
 - max 1 směna na osobu a den
 - respektovat nedostupnosti (DOV/NEM/OST/požadavky)

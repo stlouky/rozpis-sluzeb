@@ -114,6 +114,21 @@ def generate_schedule(config: Config, time_limit_s: float = 30.0) -> Schedule:
         for d in range(pocet_dni - max_v_rade):
             model.Add(sum(pracuje[z, d + i] for i in range(max_v_rade + 1)) <= max_v_rade)
 
+    # Po 2 nočních v řadě musí následovat 2 dny volna. Tím je zároveň
+    # vyloučena i 3. noční v řadě - navazovala by na dvojici, které povinné
+    # volno předepisuje, takže by sama sobě odporovala.
+    for z in lide:
+        for d in range(pocet_dni - 1):
+            dve_nocni = model.NewBoolVar(f"dve_nocni_{z}_{d}")
+            model.AddBoolAnd(smena[z, d, N], smena[z, d + 1, N]).OnlyEnforceIf(dve_nocni)
+            model.AddBoolOr(
+                smena[z, d, N].Not(), smena[z, d + 1, N].Not()
+            ).OnlyEnforceIf(dve_nocni.Not())
+            if d + 2 < pocet_dni:
+                model.Add(pracuje[z, d + 2] == 0).OnlyEnforceIf(dve_nocni)
+            if d + 3 < pocet_dni:
+                model.Add(pracuje[z, d + 3] == 0).OnlyEnforceIf(dve_nocni)
+
     # Nedostupnosti
     for jmeno, dny_volna in config.nedostupnosti.items():
         for den in dny_volna:

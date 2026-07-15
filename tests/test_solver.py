@@ -101,6 +101,32 @@ def test_zakaz_nocni_pred_denni(zakladni_schedule):
                 assert schedule.smena_zamestnance(jmeno, den + 1) != "D"
 
 
+def test_po_dvou_nocnich_dva_dny_volna(zakladni_schedule):
+    _, schedule = zakladni_schedule
+    for jmeno in schedule.jmena:
+        for den in range(1, schedule.pocet_dni):
+            if (
+                schedule.smena_zamestnance(jmeno, den) == "N"
+                and schedule.smena_zamestnance(jmeno, den + 1) == "N"
+            ):
+                if den + 2 <= schedule.pocet_dni:
+                    assert schedule.smena_zamestnance(jmeno, den + 2) is None
+                if den + 3 <= schedule.pocet_dni:
+                    assert schedule.smena_zamestnance(jmeno, den + 3) is None
+
+
+def test_zakaz_tri_nocnich_v_rade(zakladni_schedule):
+    _, schedule = zakladni_schedule
+    for jmeno in schedule.jmena:
+        serie = 0
+        for den in range(1, schedule.pocet_dni + 1):
+            if schedule.smena_zamestnance(jmeno, den) == "N":
+                serie += 1
+                assert serie <= 2
+            else:
+                serie = 0
+
+
 def _nejdelsi_serie(schedule, jmeno):
     nejdelsi = serie = 0
     for den in range(1, schedule.pocet_dni + 1):
