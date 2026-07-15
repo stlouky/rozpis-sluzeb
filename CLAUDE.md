@@ -32,14 +32,14 @@ Požadavky na volno chodí i v průběhu měsíce. Změna = zamknout minulost
 a odpracované směny, přegenerovat jen zbytek měsíce, ukázat diff.
 
 ## Konvence
-- komentáře a UI česky, kód anglicky
+- komentáře, UI i kód (názvy proměnných/tříd/funkcí) česky — konzistentně s prototypem
 - jeden task = jeden commit
 - solver vždy s time limitem (max_time_in_seconds)
 - při nesplnitelnosti VŽDY vypsat proč (které dny/pravidla kolidují)
 
 ## Stav
 - [x] prototyp solveru (rozpis.py) — funkční, pravidla ověřena
-- [ ] fáze 1: modul + YAML konfigurace + testy
+- [x] fáze 1: modul + YAML konfigurace + testy
 - [ ] fáze 2: SQLite + správa zaměstnanců a nedostupností
 - [ ] fáze 3: FastAPI + barevná mřížka (žlutá D, modrá N, zelená DOV)
 - [ ] fáze 4: zamykání + přegenerování + diff

@@ -1,0 +1,55 @@
+# Konfigurace generátoru rozpisu služeb.
+# Struktura odpovídá datovému modelu v NAVRH.md (employee, unavailability,
+# pair_rule, settings) — ve fázi 2 se přesune do SQLite, tohle je zatím
+# jediný zdroj pravdy pro solver.
+
+rok: 2026
+mesic: 8  # srpen
+
+zamestnanci:
+  - jmeno: Alena
+  - jmeno: Bedřich
+  - jmeno: Cyril
+    stitky: [fyzicka_vypomoc]
+  - jmeno: Dana
+  - jmeno: Emil
+  - jmeno: Františka
+  - jmeno: Gustav
+  - jmeno: Hana
+  - jmeno: Ivan
+  - jmeno: Jitka
+  - jmeno: Karel
+    stitky: [fyzicka_vypomoc]
+  - jmeno: Lenka
+
+obsazeni:
+  denni_min: 3
+  denni_max: 4
+  nocni_min: 2
+  nocni_max: 2   # noční je vždy přesně 2 (viz CLAUDE.md)
+
+pravidla:
+  max_v_rade: 3        # max směn v řadě, pak min 1 den volna
+  max_smen_mesic: 15    # fond ~37,5h/týden -> ~15x12h směn
+
+# Nedostupnosti: jméno -> seznam dní v měsíci (1-indexováno).
+# Typ (DOV/NEM/OST) zatím neřešíme odděleně, pro solver je to jen "nedostupný".
+nedostupnosti:
+  Alena: [3, 4, 5, 6, 7, 8, 9]
+  Dana: [14, 15]
+  Gustav: [20, 21, 22, 23, 24, 25, 26]
+  Jitka: [1, 2]
+  Karel: [28, 29, 30]
+
+# Neslučitelné dvojice (fyzická výpomoc) — nesmí sloužit stejnou směnu,
+# pokud to jinak nejde (měkké pravidlo, penalizace viz vahy).
+nekompatibilni_dvojice:
+  - [Cyril, Karel]
+
+# Váhy měkkých pravidel pro optimalizační cíl solveru.
+vahy:
+  plne_obsazeni: 10
+  ferovost_nocni: 5
+  ferovost_vikendy: 3
+  ferovost_celkem: 4
+  nekompatibilni_penalizace: 8
