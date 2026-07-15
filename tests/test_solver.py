@@ -73,17 +73,43 @@ def test_zakaz_nocni_pred_denni(zakladni_schedule):
                 assert schedule.smena_zamestnance(jmeno, den + 1) != "D"
 
 
+def _nejdelsi_serie(schedule, jmeno):
+    nejdelsi = serie = 0
+    for den in range(1, schedule.pocet_dni + 1):
+        if schedule.smena_zamestnance(jmeno, den) is not None:
+            serie += 1
+            nejdelsi = max(nejdelsi, serie)
+        else:
+            serie = 0
+    return nejdelsi
+
+
 def test_max_smen_v_rade(zakladni_schedule):
     config, schedule = zakladni_schedule
     max_v_rade = config.pravidla.max_v_rade
     for jmeno in schedule.jmena:
-        v_rade = 0
-        for den in range(1, schedule.pocet_dni + 1):
-            if schedule.smena_zamestnance(jmeno, den) is not None:
-                v_rade += 1
-                assert v_rade <= max_v_rade
-            else:
-                v_rade = 0
+        assert _nejdelsi_serie(schedule, jmeno) <= max_v_rade
+
+
+@pytest.mark.parametrize("max_v_rade", [1, 2])
+def test_max_v_rade_respektuje_hodnotu_z_configu(max_v_rade):
+    # ne jen že výchozích 3 v základním configu náhodou vychází - i přísnější
+    # hodnoty (1, 2) musí solver reálně dodržet, což dokazuje, že se čte
+    # z config.pravidla.max_v_rade a není natvrdo zadrátovaná v core.py
+    config = zakladni_config(pravidla=dict(max_v_rade=max_v_rade, max_smen_mesic=15))
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    for jmeno in schedule.jmena:
+        assert _nejdelsi_serie(schedule, jmeno) <= max_v_rade
+
+
+def test_max_v_rade_omezuje_pod_prirozenou_delku():
+    # bez efektivního omezení (max_v_rade nastavený na celý měsíc) solver
+    # přirozeně vytvoří série dlouhé 5 (ověřeno experimentálně) - výchozí
+    # strop 3 tedy reálně něco ořezává, není to jen náhoda z jiných pravidel
+    config = zakladni_config(pravidla=dict(max_v_rade=31, max_smen_mesic=15))
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    nejdelsi = max(_nejdelsi_serie(schedule, jmeno) for jmeno in schedule.jmena)
+    assert nejdelsi > 3
 
 
 def test_max_jedna_smena_denne(zakladni_schedule):
