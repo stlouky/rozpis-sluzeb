@@ -50,6 +50,21 @@ def test_obsazeni_nocni_presne_dve(zakladni_schedule):
         assert pocet_n == 2
 
 
+def test_obsazeni_plati_i_o_vikendu(zakladni_schedule):
+    # CLAUDE.md: obsazení 3-4 denní / přesně 2 noční platí "každý den vč.
+    # víkendů a svátků" - v configu/modelu neexistuje žádná víkendová
+    # výjimka (obsazeni constraint běží stejně pro všechny dny), tenhle
+    # test to ověřuje explicitně a odděleně od test_obsazeni_*_v_mezich,
+    # aby budoucí "víkendová výjimka" nemohla proklouznout bez povšimnutí
+    config, schedule = zakladni_schedule
+    vikendove_dny = [d for d in range(1, schedule.pocet_dni + 1) if schedule.je_vikend(d)]
+    assert vikendove_dny  # sanity - v testovaném měsíci víkend skutečně je
+    for den in vikendove_dny:
+        pocet_d, pocet_n = schedule.obsazeni_dne(den)
+        assert config.obsazeni.denni_min <= pocet_d <= config.obsazeni.denni_max
+        assert pocet_n == 2
+
+
 def test_zakaz_nocni_pred_denni(zakladni_schedule):
     _, schedule = zakladni_schedule
     for jmeno in schedule.jmena:
