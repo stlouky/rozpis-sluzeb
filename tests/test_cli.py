@@ -108,3 +108,17 @@ def test_cli_generuj_nesplnitelne_zadani_vypise_duvod_a_vraci_chybu(tmp_path, ca
     assert excinfo.value.code == 1
     vystup = capsys.readouterr().out
     assert "nelze sestavit" in vystup.lower()
+
+
+def test_cli_generuj_s_pdf_ulozi_soubor(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    _pridat_12_zamestnancu(cesta_db)
+    capsys.readouterr()
+
+    cesta_pdf = tmp_path / "rozpis.pdf"
+    main(["--db", str(cesta_db), "generuj", "2026", "8", "--pdf", str(cesta_pdf)])
+    vystup = capsys.readouterr().out
+
+    assert cesta_pdf.exists()
+    assert cesta_pdf.read_bytes().startswith(b"%PDF")
+    assert "PDF uloženo" in vystup

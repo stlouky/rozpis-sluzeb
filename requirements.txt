@@ -1,3 +1,4 @@
 ortools>=9.10
 pyyaml>=6.0
 pytest>=8.0
+reportlab>=4.0

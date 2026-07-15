@@ -72,6 +72,12 @@ def _cmd_generuj(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     print(schedule.to_text())
 
+    if args.pdf:
+        from vystup.pdf import vygenerovat_pdf
+
+        vygenerovat_pdf(schedule, args.pdf)
+        print(f"\nPDF uloženo: {args.pdf}")
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ruční správa DB rozpisu služeb")
@@ -110,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("rok", type=int)
     p.add_argument("mesic", type=int)
     p.add_argument("--config-yaml", default=str(DEFAULT_CONFIG_YAML))
+    p.add_argument("--pdf", help="navíc uložit A4 PDF pro nástěnku na tuto cestu")
     p.set_defaults(func=_cmd_generuj)
 
     args = parser.parse_args(argv)
