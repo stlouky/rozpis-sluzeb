@@ -35,6 +35,12 @@ def _cmd_deaktivovat_zamestnance(args: argparse.Namespace) -> None:
     print(f"Zaměstnanec {args.id} deaktivován od {args.aktivni_do}")
 
 
+def _cmd_opravit_jmeno(args: argparse.Namespace) -> None:
+    conn = _pripojit_a_inicializovat(Path(args.db))
+    repo.opravit_jmeno_zamestnance(conn, args.id, args.jmeno)
+    print(f"Zaměstnanec {args.id} přejmenován na „{args.jmeno}“")
+
+
 def _cmd_pridat_nedostupnost(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
     id_ = repo.pridat_nedostupnost(
@@ -82,6 +88,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("id", type=int)
     p.add_argument("aktivni_do", help="YYYY-MM-DD")
     p.set_defaults(func=_cmd_deaktivovat_zamestnance)
+
+    p = sub.add_parser("opravit-jmeno", help="opravit chybně zapsané jméno (ne odchod - viz deaktivovat-zamestnance)")
+    p.add_argument("id", type=int)
+    p.add_argument("jmeno")
+    p.set_defaults(func=_cmd_opravit_jmeno)
 
     p = sub.add_parser("pridat-nedostupnost", help="přidat nedostupnost (interval od-do)")
     p.add_argument("zamestnanec_id", type=int)

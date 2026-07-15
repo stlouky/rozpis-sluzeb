@@ -56,6 +56,15 @@ def test_deaktivovany_zamestnanec_zmizi_po_datu_odchodu(conn):
     assert radek["jmeno"] == "Alena"
 
 
+def test_opravit_jmeno_zamestnance(conn):
+    id_ = repo.pridat_zamestnance(conn, "Adamcová Bezemková Andrea", date(2020, 1, 1))
+    repo.opravit_jmeno_zamestnance(conn, id_, "Bezemková Andrea")
+
+    aktivni = repo.aktivni_zamestnanci(conn, date(2026, 1, 1))
+    opravena = next(z for z in aktivni if z.id == id_)
+    assert opravena.jmeno == "Bezemková Andrea"
+
+
 def test_prekryv_nedostupnosti_stejneho_zamestnance(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     # dovolená 3.-9. srpna, uprostřed toho nahlášená nemoc 5.-7. (překryv)

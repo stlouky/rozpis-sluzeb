@@ -57,6 +57,20 @@ def test_cli_deaktivovat_zamestnance_zmizi_ze_seznamu(tmp_path, capsys):
     assert "Alena" in vystup_pred
 
 
+def test_cli_opravit_jmeno(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    main(["--db", str(cesta_db), "pridat-zamestnance", "Adamcová Bezemková Andrea", "2020-01-01"])
+    capsys.readouterr()
+
+    main(["--db", str(cesta_db), "opravit-jmeno", "1", "Bezemková Andrea"])
+    capsys.readouterr()
+
+    main(["--db", str(cesta_db), "seznam-zamestnancu", "--datum", "2026-01-01"])
+    vystup = capsys.readouterr().out
+    assert "Bezemková Andrea" in vystup
+    assert "Adamcová" not in vystup
+
+
 def test_cli_pridat_nedostupnost_se_projevi_v_rozpisu(tmp_path, capsys):
     cesta_db = tmp_path / "test.db"
     _pridat_12_zamestnancu(cesta_db)

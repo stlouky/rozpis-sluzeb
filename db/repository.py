@@ -90,6 +90,16 @@ def deaktivovat_zamestnance(conn: sqlite3.Connection, zamestnanec_id: int, aktiv
     conn.commit()
 
 
+def opravit_jmeno_zamestnance(conn: sqlite3.Connection, zamestnanec_id: int, jmeno: str) -> None:
+    """Opraví jméno (typo/nesprávný zápis) - na rozdíl od deaktivace nejde
+    o fluktuaci, jen o opravu chybného záznamu."""
+    conn.execute(
+        "UPDATE zamestnanec SET jmeno = ? WHERE id = ?",
+        (jmeno, zamestnanec_id),
+    )
+    conn.commit()
+
+
 def aktivni_zamestnanci(conn: sqlite3.Connection, datum: date) -> list[Zamestnanec]:
     """Zaměstnanci aktivní k jednomu konkrétnímu datu."""
     return aktivni_zamestnanci_v_obdobi(conn, datum, datum)
