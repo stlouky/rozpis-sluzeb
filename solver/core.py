@@ -208,6 +208,12 @@ def generate_schedule(config: Config, time_limit_s: float = 30.0) -> Schedule:
             elif ma_nocni:
                 smeny_out[z, d + 1] = "N"
 
+    duvody_out = {
+        (jmeno, den): duvod
+        for jmeno, dny_duvodu in config.duvody_nedostupnosti.items()
+        for den, duvod in dny_duvodu.items()
+    }
+
     return Schedule(
         rok=config.rok,
         mesic=config.mesic,
@@ -215,4 +221,5 @@ def generate_schedule(config: Config, time_limit_s: float = 30.0) -> Schedule:
         smeny=smeny_out,
         status=solver.StatusName(status),
         cas_reseni=solver.WallTime(),
+        duvody_nedostupnosti=duvody_out,
     )

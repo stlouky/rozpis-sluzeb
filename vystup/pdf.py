@@ -1,8 +1,9 @@
 """Export rozpisu do PDF pro tisk na nástěnku.
 
 A4 na šířku, mřížka zaměstnanec x den - barvy podle CLAUDE.md (žlutá D,
-modrá N). Zelená pro DOV zatím chybí: Schedule nenese důvod volna (jen
-smeny D/N), to je otázka pro fázi 3-4, až rozpis ponese i nedostupnosti.
+modrá N, zelená DOV). OST (soukromé volno) se píše jako text do bílé
+buňky, i přes šedé podbarvení víkendu - vedoucí to tak má na nástěnce
+z Cygnusu. NEM/POZADAVEK zatím bez zvláštního značení (nebylo zadáno).
 
 Standardní PDF fonty (Helvetica) neumí českou diakritiku s háčkem
 (č/ř/ě/š/ž) - proto je přibalený DejaVu Sans (fonts/), aby export
@@ -29,8 +30,12 @@ CZ_DNY = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"]
 
 BARVA_DENNI = colors.HexColor("#FFE699")
 BARVA_NOCNI = colors.HexColor("#9DC3E6")
+BARVA_DOV = colors.HexColor("#A9D18E")
+BARVA_OST = colors.white
 BARVA_VIKEND = colors.HexColor("#EDEDED")
 BARVA_MRIZKY = colors.HexColor("#BBBBBB")
+
+STITEK_OST = "OST"
 
 # Štítky směn ve stylu, na jaký je vedoucí zvyklá z Cygnusu (NAVRH.md:
 # "barevná mřížka jako v Cygnusu ... vedoucí to už zná"). Bez konkrétních
@@ -79,7 +84,15 @@ def _hlavni_tabulka(schedule: Schedule) -> Table:
         radek = []
         for d in dny:
             typ = schedule.smena_zamestnance(jmeno, d)
-            radek.append(STITEK_DENNI if typ == "D" else STITEK_NOCNI if typ == "N" else "")
+            if typ == "D":
+                stitek = STITEK_DENNI
+            elif typ == "N":
+                stitek = STITEK_NOCNI
+            elif schedule.duvod_nedostupnosti(jmeno, d) == "OST":
+                stitek = STITEK_OST
+            else:
+                stitek = ""
+            radek.append(stitek)
         data.append([jmeno] + radek)
 
     sloupec_jmeno = 38 * mm
@@ -120,6 +133,12 @@ def _hlavni_tabulka(schedule: Schedule) -> Table:
                 styl.append(("BACKGROUND", (sloupec, radek), (sloupec, radek), BARVA_DENNI))
             elif typ == "N":
                 styl.append(("BACKGROUND", (sloupec, radek), (sloupec, radek), BARVA_NOCNI))
+            else:
+                duvod = schedule.duvod_nedostupnosti(jmeno, den)
+                if duvod == "DOV":
+                    styl.append(("BACKGROUND", (sloupec, radek), (sloupec, radek), BARVA_DOV))
+                elif duvod == "OST":
+                    styl.append(("BACKGROUND", (sloupec, radek), (sloupec, radek), BARVA_OST))
 
     tabulka.setStyle(TableStyle(styl))
     return tabulka
@@ -163,7 +182,8 @@ def vygenerovat_pdf(schedule: Schedule, cesta: str | Path) -> None:
         Paragraph(f"Rozpis služeb {nazev_mesice}", styly["Title"]),
         Paragraph(
             f"{STITEK_DENNI} = denní, {STITEK_NOCNI} = noční, prázdné = volno, "
-            f"šedě = víkend. Řešení: {schedule.status}.",
+            f"šedě = víkend, zeleně = dovolená, {STITEK_OST} = soukromé volno. "
+            f"Řešení: {schedule.status}.",
             styly["Normal"],
         ),
         Spacer(1, 4 * mm),

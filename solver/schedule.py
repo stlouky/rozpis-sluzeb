@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 CZ_DNY = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"]
@@ -21,6 +21,10 @@ class Schedule:
     smeny: dict[tuple[str, int], str]
     status: str
     cas_reseni: float
+    # Důvod nedostupnosti (DOV/NEM/OST/POZADAVEK) pro dny volna - jen pro
+    # zobrazení (PDF), solver s tím dál nepracuje. Chybějící klíč = buď se
+    # pracovalo, nebo důvod není znám (např. config.yaml bez duvody_nedostupnosti).
+    duvody_nedostupnosti: dict[tuple[str, int], str] = field(default_factory=dict)
 
     @property
     def pocet_dni(self) -> int:
@@ -30,6 +34,9 @@ class Schedule:
 
     def smena_zamestnance(self, jmeno: str, den: int) -> str | None:
         return self.smeny.get((jmeno, den))
+
+    def duvod_nedostupnosti(self, jmeno: str, den: int) -> str | None:
+        return self.duvody_nedostupnosti.get((jmeno, den))
 
     def obsazeni_dne(self, den: int) -> tuple[int, int]:
         """Vrátí (počet denních, počet nočních) směn pro daný den."""

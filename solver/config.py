@@ -57,6 +57,10 @@ class Config:
     nedostupnosti: dict[str, tuple[int, ...]]
     nekompatibilni_dvojice: tuple[tuple[str, str], ...]
     vahy: Vahy
+    # Důvod nedostupnosti (DOV/NEM/OST/POZADAVEK) na den, jen pro zobrazení
+    # ve výstupu (PDF apod.) - solver sám důvod nepotřebuje, mu stačí
+    # `nedostupnosti` výš. Volitelné: config.yaml jej nezadává, jen db/bridge.py.
+    duvody_nedostupnosti: dict[str, dict[int, str]] = field(default_factory=dict)
 
     @property
     def pocet_dni(self) -> int:
@@ -110,6 +114,10 @@ def _nacti_nedostupnosti(data: dict) -> dict[str, tuple[int, ...]]:
     return {jmeno: tuple(dny) for jmeno, dny in (data or {}).items()}
 
 
+def _nacti_duvody_nedostupnosti(data: dict) -> dict[str, dict[int, str]]:
+    return {jmeno: dict(dny) for jmeno, dny in (data or {}).items()}
+
+
 def _nacti_dvojice(data: list[list[str]]) -> tuple[tuple[str, str], ...]:
     dvojice = []
     for dvojice_raw in data or []:
@@ -134,6 +142,7 @@ def config_from_dict(data: dict) -> Config:
             nedostupnosti=_nacti_nedostupnosti(data.get("nedostupnosti")),
             nekompatibilni_dvojice=_nacti_dvojice(data.get("nekompatibilni_dvojice")),
             vahy=vahy,
+            duvody_nedostupnosti=_nacti_duvody_nedostupnosti(data.get("duvody_nedostupnosti")),
         )
     except KeyError as chybi:
         raise ConfigError(f"V konfiguraci chybí povinný klíč: {chybi}") from chybi
