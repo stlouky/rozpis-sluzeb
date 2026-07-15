@@ -42,7 +42,7 @@ a odpracované směny, přegenerovat jen zbytek měsíce, ukázat diff.
 ## Stav
 - [x] prototyp solveru (rozpis.py) — funkční, pravidla ověřena
 - [x] fáze 1: modul + YAML konfigurace + testy
-- [ ] fáze 2: SQLite + správa zaměstnanců a nedostupností
+- [x] fáze 2: SQLite (db/) + správa zaměstnanců a nedostupností + most na solver
 - [ ] fáze 3: FastAPI + barevná mřížka (žlutá D, modrá N, zelená DOV)
 - [ ] fáze 4: zamykání + přegenerování + diff
 - [ ] fáze 5: PDF (A4 šířka, nástěnka) + XLSX
