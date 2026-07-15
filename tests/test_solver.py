@@ -65,6 +65,34 @@ def test_obsazeni_plati_i_o_vikendu(zakladni_schedule):
         assert pocet_n == 2
 
 
+def _pocet_plne_obsazenych_dni(config, schedule):
+    return sum(
+        1
+        for den in range(1, schedule.pocet_dni + 1)
+        if schedule.obsazeni_dne(den)[0] == config.obsazeni.denni_max
+    )
+
+
+def test_plne_obsazeni_vaha_zvysuje_pocet_plne_obsazenych_dni(zakladni_schedule):
+    # měkké pravidlo (váha plne_obsazeni=10) preferuje 4 lidi na denní
+    # směně místo minima 3 (noční je vždy plná i bez téhle váhy, protože
+    # nocni_min==nocni_max==2 je tvrdé omezení bez volnosti). Bez váhy (0)
+    # nemá solver důvod dávat přednost plnému obsazení před minimem -
+    # ověřeno experimentálně: váha=0 -> 13/31 plně obsazených dní,
+    # výchozí váha=10 -> 25/31.
+    config_s_vahou, schedule_s_vahou = zakladni_schedule
+    config_bez_vahy = zakladni_config(
+        vahy=dict(plne_obsazeni=0, ferovost_nocni=5, ferovost_vikendy=3,
+                  ferovost_celkem=4, nekompatibilni_penalizace=8)
+    )
+    schedule_bez_vahy = generate_schedule(config_bez_vahy, time_limit_s=TIME_LIMIT)
+
+    plnych_s_vahou = _pocet_plne_obsazenych_dni(config_s_vahou, schedule_s_vahou)
+    plnych_bez_vahy = _pocet_plne_obsazenych_dni(config_bez_vahy, schedule_bez_vahy)
+
+    assert plnych_s_vahou > plnych_bez_vahy
+
+
 def test_zakaz_nocni_pred_denni(zakladni_schedule):
     _, schedule = zakladni_schedule
     for jmeno in schedule.jmena:

@@ -9,6 +9,8 @@ Kompletní návrh viz NAVRH.md.
 ## Stack
 Python 3.12, OR-Tools CP-SAT (solver), FastAPI, SQLite, Jinja2.
 Deploy: Hetzner VPS, systemd + Caddy. Žádný frontend build systém.
+Python 3.12+, běh a testy VŽDY přes .venv (.venv/bin/python -m pytest)
+— systémový Python nemá ortools/pyyaml. Na deploy cílit Python 3.12.
 
 ## Doménová pravidla (NEMĚNIT bez zadání)
 
