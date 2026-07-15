@@ -128,6 +128,62 @@ def test_dvojice_se_prevedou_na_jmena_v_configu(conn):
     assert ("Cyril", "Karel") in config.nekompatibilni_dvojice
 
 
+def test_pridat_a_vypsat_dvojici(conn):
+    id_a = repo.pridat_zamestnance(conn, "Cyril", date(2020, 1, 1))
+    id_b = repo.pridat_zamestnance(conn, "Karel", date(2020, 1, 1))
+    repo.pridat_dvojici(conn, id_a, id_b)
+
+    vsechny = repo.dvojice_vsechny(conn)
+    assert len(vsechny) == 1
+    d = vsechny[0]
+    assert (d.zamestnanec_a_id, d.zamestnanec_b_id) == (id_a, id_b)
+    assert d.typ == "rozprostrit"  # výchozí hodnota, nebylo zadáno explicitně
+
+
+def test_dvojice_s_neaktivnim_clenem_se_v_mesici_ignoruje(conn):
+    # Karel odejde koncem června - dvojice zůstává v DB (nikdy se
+    # nemaže), ale pro měsíc, kdy už není aktivní, nedává smysl ji
+    # promítat do configu (byl by to odkaz na "ducha", stejně jako
+    # u nedostupností neaktivního zaměstnance)
+    id_a = repo.pridat_zamestnance(conn, "Cyril", date(2020, 1, 1))
+    id_b = repo.pridat_zamestnance(conn, "Karel", date(2020, 1, 1))
+    repo.deaktivovat_zamestnance(conn, id_b, date(2026, 6, 30))
+    for jmeno in ["Alena", "Bedřich", "Dana", "Emil", "Frantiska",
+                  "Gustav", "Hana", "Ivan", "Jitka", "Lenka"]:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    repo.pridat_dvojici(conn, id_a, id_b)
+
+    config_cerven = config_pro_mesic(conn, 2026, 6)  # Karel ještě aktivní
+    config_srpen = config_pro_mesic(conn, 2026, 8)   # Karel už neaktivní
+
+    assert ("Cyril", "Karel") in config_cerven.nekompatibilni_dvojice
+    assert config_srpen.nekompatibilni_dvojice == ()
+
+
+def test_dvojice_z_db_ovlivni_vygenerovany_rozpis(conn):
+    # end-to-end: dvojice zadaná přes DB musí reálně ovlivnit chování
+    # solveru, ne jen projít konverzí na jména v configu (to už ověřuje
+    # test_dvojice_se_prevedou_na_jmena_v_configu výše)
+    id_a = repo.pridat_zamestnance(conn, "Cyril", date(2020, 1, 1))
+    id_b = repo.pridat_zamestnance(conn, "Karel", date(2020, 1, 1))
+    for jmeno in ["Alena", "Bedřich", "Dana", "Emil", "Frantiska",
+                  "Gustav", "Hana", "Ivan", "Jitka", "Lenka"]:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    repo.pridat_dvojici(conn, id_a, id_b)
+
+    config = config_pro_mesic(conn, 2026, 8)
+    schedule = generate_schedule(config, time_limit_s=10.0)
+
+    for den in range(1, schedule.pocet_dni + 1):
+        smena_cyril = schedule.smena_zamestnance("Cyril", den)
+        smena_karel = schedule.smena_zamestnance("Karel", den)
+        if smena_cyril is not None and smena_karel is not None:
+            assert smena_cyril != smena_karel, (
+                f"den {den}: Cyril i Karel slouží stejnou směnu, ačkoli "
+                "jsou v DB zadaní jako neslučitelná dvojice"
+            )
+
+
 def test_zrusit_nedostupnost(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     ned_id = repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 9), "DOV")
