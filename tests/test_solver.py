@@ -235,6 +235,47 @@ def test_respektuje_nedostupnosti_vice_lidi_najednou():
             )
 
 
+def test_respektuje_zakazany_typ_smeny():
+    # Alena nechce denní směnu 21. - noční ten den ok, jiné dny ok obojí
+    config = zakladni_config(zakazane_smeny={"Alena": {21: ["D"]}})
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    assert schedule.smena_zamestnance("Alena", 21) != "D"
+
+
+def test_zakazany_typ_smeny_nevyrazuje_z_celeho_dne():
+    # na rozdíl od nedostupnosti musí zůstat k dispozici pro zbylý typ směny.
+    # Aby to test ověřil tvrdě (ne jen jako preferenci optimalizace), nastaví
+    # 21. přesně tolik dostupných lidí (5 = denni_min 3 + nocni_min 2), kolik
+    # je potřeba minimálně - všech 5 tedy MUSÍ ten den sloužit a Alena, které
+    # je D zakázané, tak nutně musí dostat N.
+    ostatni_nedostupni = ["Frantiska", "Gustav", "Hana", "Ivan", "Jitka", "Karel", "Lenka"]
+    config = zakladni_config(
+        nedostupnosti={jmeno: [21] for jmeno in ostatni_nedostupni},
+        zakazane_smeny={"Alena": {21: ["D"]}},
+    )
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    pocet_d, pocet_n = schedule.obsazeni_dne(21)
+    assert (pocet_d, pocet_n) == (3, 2)
+    assert schedule.smena_zamestnance("Alena", 21) == "N"
+
+
+def test_config_odmitne_neznameho_zamestnance_v_zakazanych_smenach():
+    with pytest.raises(ConfigError):
+        zakladni_config(zakazane_smeny={"Neexistujici": {1: ["D"]}})
+
+
+def test_config_odmitne_neplatny_typ_zakazane_smeny():
+    with pytest.raises(ConfigError):
+        zakladni_config(zakazane_smeny={"Alena": {1: ["X"]}})
+
+
+def test_random_seed_je_deterministicky():
+    config = zakladni_config()
+    a = generate_schedule(config, time_limit_s=TIME_LIMIT, random_seed=42)
+    b = generate_schedule(config, time_limit_s=TIME_LIMIT, random_seed=42)
+    assert a.smeny == b.smeny
+
+
 def test_config_odmitne_den_mimo_rozsah_mesice():
     # srpen 2026 má 31 dní - den 32 je mimo měsíc
     with pytest.raises(ConfigError):

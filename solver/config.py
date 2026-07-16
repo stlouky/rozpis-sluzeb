@@ -61,6 +61,11 @@ class Config:
     # ve výstupu (PDF apod.) - solver sám důvod nepotřebuje, mu stačí
     # `nedostupnosti` výš. Volitelné: config.yaml jej nezadává, jen db/bridge.py.
     duvody_nedostupnosti: dict[str, dict[int, str]] = field(default_factory=dict)
+    # Nedostupnost jen pro konkrétní typ směny (na rozdíl od `nedostupnosti`
+    # výš, kde je celý den volno): jmeno -> {den -> ("D",) / ("N",) / ("D","N")}.
+    # Např. "nechci denní, noční mi nevadí" - člověk zůstává k dispozici pro
+    # zbylý typ směny, `nedostupnosti` by ho vyřadilo z celého dne.
+    zakazane_smeny: dict[str, dict[int, tuple[str, ...]]] = field(default_factory=dict)
 
     @property
     def pocet_dni(self) -> int:
@@ -84,6 +89,20 @@ class Config:
                         f"Nedostupnost {jmeno}: den {den} je mimo měsíc "
                         f"(1-{self.pocet_dni})."
                     )
+
+        for jmeno, dny in self.zakazane_smeny.items():
+            if jmeno not in znama_jmena:
+                raise ConfigError(f"Zakázaná směna odkazuje na neznámého zaměstnance: {jmeno}")
+            for den, typy in dny.items():
+                if not (1 <= den <= self.pocet_dni):
+                    raise ConfigError(
+                        f"Zakázaná směna {jmeno}: den {den} je mimo měsíc (1-{self.pocet_dni})."
+                    )
+                for typ in typy:
+                    if typ not in ("D", "N"):
+                        raise ConfigError(
+                            f"Zakázaná směna {jmeno}, den {den}: neplatný typ „{typ}“ (jen D/N)."
+                        )
 
         for a, b in self.nekompatibilni_dvojice:
             for jmeno in (a, b):
@@ -118,6 +137,13 @@ def _nacti_duvody_nedostupnosti(data: dict) -> dict[str, dict[int, str]]:
     return {jmeno: dict(dny) for jmeno, dny in (data or {}).items()}
 
 
+def _nacti_zakazane_smeny(data: dict) -> dict[str, dict[int, tuple[str, ...]]]:
+    return {
+        jmeno: {den: tuple(typy) for den, typy in dny.items()}
+        for jmeno, dny in (data or {}).items()
+    }
+
+
 def _nacti_dvojice(data: list[list[str]]) -> tuple[tuple[str, str], ...]:
     dvojice = []
     for dvojice_raw in data or []:
@@ -143,6 +169,7 @@ def config_from_dict(data: dict) -> Config:
             nekompatibilni_dvojice=_nacti_dvojice(data.get("nekompatibilni_dvojice")),
             vahy=vahy,
             duvody_nedostupnosti=_nacti_duvody_nedostupnosti(data.get("duvody_nedostupnosti")),
+            zakazane_smeny=_nacti_zakazane_smeny(data.get("zakazane_smeny")),
         )
     except KeyError as chybi:
         raise ConfigError(f"V konfiguraci chybí povinný klíč: {chybi}") from chybi

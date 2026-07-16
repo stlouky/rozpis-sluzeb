@@ -62,8 +62,14 @@ def _diagnostikuj_nesplnitelnost(config: Config) -> list[str]:
     return duvody
 
 
-def generate_schedule(config: Config, time_limit_s: float = 30.0) -> Schedule:
+def generate_schedule(
+    config: Config, time_limit_s: float = 30.0, random_seed: int | None = None
+) -> Schedule:
     """Vygeneruje rozpis pro daný config.
+
+    random_seed: při nezměněném configu ovlivní, ke kterému z rovnocenně
+    optimálních řešení solver dojde - použitelné pro nabídku více variant
+    rozpisu ke stejnému zadání (stejný seed = stejný výsledek).
 
     Vyhazuje NelzeSestavitError, pokud zadání nemá přípustné řešení.
     """
@@ -134,6 +140,14 @@ def generate_schedule(config: Config, time_limit_s: float = 30.0) -> Schedule:
         for den in dny_volna:
             model.Add(pracuje[jmeno, den - 1] == 0)
 
+    # Nedostupnost jen pro konkrétní typ směny (viz Config.zakazane_smeny) -
+    # na rozdíl od nedostupnosti výš tu člověk zůstává k dispozici pro
+    # zbylý typ směny.
+    for jmeno, dny_omezeni in config.zakazane_smeny.items():
+        for den, typy in dny_omezeni.items():
+            for typ in typy:
+                model.Add(smena[jmeno, den - 1, typ] == 0)
+
     # Fond pracovní doby
     for z in lide:
         model.Add(sum(pracuje[z, d] for d in dny) <= config.pravidla.max_smen_mesic)
@@ -185,6 +199,11 @@ def generate_schedule(config: Config, time_limit_s: float = 30.0) -> Schedule:
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_s
+    if random_seed is not None:
+        solver.parameters.random_seed = random_seed
+        # Determinismus (stejný seed -> stejný výsledek) vyžaduje jediné
+        # vlákno - výchozí paralelní portfolio search seed nerespektuje.
+        solver.parameters.num_search_workers = 1
     status = solver.Solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
