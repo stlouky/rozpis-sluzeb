@@ -4,3 +4,9 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 *.db
+
+# Provozní data se skutečnými jmény a osobními údaji zaměstnanců - nikdy
+# necommitovat (viz audit).
+zamestnanci.txt
+požadavky.txt
+rozpis_*.pdf
