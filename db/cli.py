@@ -25,7 +25,9 @@ def _pripojit_a_inicializovat(cesta: Path):
 def _cmd_pridat_zamestnance(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
     stitky = args.stitky.split(",") if args.stitky else []
-    id_ = repo.pridat_zamestnance(conn, args.jmeno, date.fromisoformat(args.aktivni_od), stitky)
+    id_ = repo.pridat_zamestnance(
+        conn, args.jmeno, date.fromisoformat(args.aktivni_od), stitky, args.max_smen_mesic
+    )
     print(f"Zaměstnanec přidán, id={id_}")
 
 
@@ -89,6 +91,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("jmeno")
     p.add_argument("aktivni_od", help="YYYY-MM-DD")
     p.add_argument("--stitky", help="čárkou oddělené štítky, např. fyzicka_vypomoc")
+    p.add_argument(
+        "--max-smen-mesic", type=int,
+        help="individuální strop směn/měsíc (bez zadání = společný strop z config.yaml)",
+    )
     p.set_defaults(func=_cmd_pridat_zamestnance)
 
     p = sub.add_parser("deaktivovat-zamestnance", help="nastavit datum odchodu (nikdy se nemaže)")

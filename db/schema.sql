@@ -9,7 +9,11 @@ CREATE TABLE IF NOT EXISTS zamestnanec (
     jmeno TEXT NOT NULL,
     aktivni_od TEXT NOT NULL,   -- ISO datum YYYY-MM-DD
     aktivni_do TEXT,            -- ISO datum, NULL = stále aktivní
-    stitky TEXT NOT NULL DEFAULT ''  -- čárkou oddělené, např. "fyzicka_vypomoc"
+    stitky TEXT NOT NULL DEFAULT '',  -- čárkou oddělené, např. "fyzicka_vypomoc"
+    -- NULL = platí společný strop z config.yaml (pravidla.max_smen_mesic).
+    -- Jinak individuální strop jen pro tohohle člověka (např. brigádník/-ce
+    -- se sníženou kapacitou) - viz solver.Config.max_smen_mesic_override.
+    max_smen_mesic INTEGER
 );
 
 -- Nedostupnost je INTERVAL (od-do), ne jednotlivé dny - dovolená se zadává

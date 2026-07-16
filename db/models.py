@@ -13,6 +13,7 @@ class Zamestnanec:
     aktivni_od: date
     aktivni_do: date | None
     stitky: str  # čárkou oddělené, prázdný řetězec = žádné
+    max_smen_mesic: int | None = None  # None = společný strop z config.yaml
 
     @property
     def seznam_stitku(self) -> list[str]:

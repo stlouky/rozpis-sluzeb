@@ -42,6 +42,7 @@ def _zamestnanec_z_radku(radek: sqlite3.Row) -> Zamestnanec:
         aktivni_od=_na_datum(radek["aktivni_od"]),
         aktivni_do=_na_datum(radek["aktivni_do"]),
         stitky=radek["stitky"],
+        max_smen_mesic=radek["max_smen_mesic"],
     )
 
 
@@ -73,10 +74,11 @@ def pridat_zamestnance(
     jmeno: str,
     aktivni_od: date,
     stitky: list[str] | None = None,
+    max_smen_mesic: int | None = None,
 ) -> int:
     kurzor = conn.execute(
-        "INSERT INTO zamestnanec (jmeno, aktivni_od, stitky) VALUES (?, ?, ?)",
-        (jmeno, aktivni_od.isoformat(), ",".join(stitky or [])),
+        "INSERT INTO zamestnanec (jmeno, aktivni_od, stitky, max_smen_mesic) VALUES (?, ?, ?, ?)",
+        (jmeno, aktivni_od.isoformat(), ",".join(stitky or []), max_smen_mesic),
     )
     conn.commit()
     return kurzor.lastrowid
@@ -97,6 +99,17 @@ def opravit_jmeno_zamestnance(conn: sqlite3.Connection, zamestnanec_id: int, jme
     conn.execute(
         "UPDATE zamestnanec SET jmeno = ? WHERE id = ?",
         (jmeno, zamestnanec_id),
+    )
+    conn.commit()
+
+
+def nastavit_max_smen_mesic(
+    conn: sqlite3.Connection, zamestnanec_id: int, max_smen_mesic: int | None
+) -> None:
+    """Nastaví (nebo zruší, pokud None) individuální strop směn/měsíc."""
+    conn.execute(
+        "UPDATE zamestnanec SET max_smen_mesic = ? WHERE id = ?",
+        (max_smen_mesic, zamestnanec_id),
     )
     conn.commit()
 

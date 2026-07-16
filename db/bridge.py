@@ -54,6 +54,9 @@ def config_pro_mesic(
     zamestnanci_data = [
         {"jmeno": z.jmeno, "stitky": z.seznam_stitku} for z in aktivni
     ]
+    max_smen_mesic_override = {
+        z.jmeno: z.max_smen_mesic for z in aktivni if z.max_smen_mesic is not None
+    }
 
     nedostupnosti: dict[str, set[int]] = {}
     duvody_nedostupnosti: dict[str, dict[int, str]] = {}
@@ -110,5 +113,6 @@ def config_pro_mesic(
         "vahy": vahy_config.get("vahy", {}),
         "duvody_nedostupnosti": duvody_nedostupnosti,
         "zakazane_smeny": zakazane_smeny,
+        "max_smen_mesic_override": max_smen_mesic_override,
     }
     return config_from_dict(data)

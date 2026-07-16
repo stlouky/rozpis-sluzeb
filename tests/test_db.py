@@ -99,6 +99,38 @@ def test_interval_pres_hranici_mesice_zasahne_oba_mesice(conn):
     assert sorted(config_srpen.nedostupnosti["Alena"]) == [1, 2, 3, 4, 5]
 
 
+def test_max_smen_mesic_se_projevi_v_configu_pro_mesic(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1), max_smen_mesic=5)
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert config.max_smen_mesic_override == {"Alena": 5}
+
+
+def test_nastavit_max_smen_mesic_zmeni_existujiciho_zamestnance(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config_pred = config_pro_mesic(conn, 2026, 8)
+    assert config_pred.max_smen_mesic_override == {}
+
+    repo.nastavit_max_smen_mesic(conn, id_, 10)
+    config_po = config_pro_mesic(conn, 2026, 8)
+    assert config_po.max_smen_mesic_override == {"Alena": 10}
+
+
+def test_max_smen_mesic_z_db_ovlivni_vygenerovany_rozpis(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1), max_smen_mesic=5)
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config = config_pro_mesic(conn, 2026, 8)
+    schedule = generate_schedule(config, time_limit_s=10.0)
+    assert schedule.souhrn_zamestnance("Alena")["smeny"] <= 5
+
+
 def test_odchod_uprostred_mesice_omezi_dostupnost_jen_na_aktivni_dny(conn):
     # brigádnice odchází 15.8. uprostřed měsíce - aktivni_zamestnanci_v_obdobi
     # ji do configu pro srpen pořád zahrne (interval se s měsícem překrývá),
