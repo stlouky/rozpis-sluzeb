@@ -99,6 +99,45 @@ def test_interval_pres_hranici_mesice_zasahne_oba_mesice(conn):
     assert sorted(config_srpen.nedostupnosti["Alena"]) == [1, 2, 3, 4, 5]
 
 
+def test_odchod_uprostred_mesice_omezi_dostupnost_jen_na_aktivni_dny(conn):
+    # brigádnice odchází 15.8. uprostřed měsíce - aktivni_zamestnanci_v_obdobi
+    # ji do configu pro srpen pořád zahrne (interval se s měsícem překrývá),
+    # ale nesmí zůstat "dostupná" i po dnech, kdy už fakticky neexistuje
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.deaktivovat_zamestnance(conn, id_, date(2026, 8, 15))
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert "Alena" in config.jmena
+    dny_po_odchodu = set(range(16, 32))
+    assert dny_po_odchodu <= set(config.nedostupnosti["Alena"])
+    assert 15 not in config.nedostupnosti["Alena"]  # poslední den ještě aktivní
+
+
+def test_nastup_uprostred_mesice_omezi_dostupnost_az_od_nastupu(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2026, 8, 10))
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config = config_pro_mesic(conn, 2026, 8)
+    dny_pred_nastupem = set(range(1, 10))
+    assert dny_pred_nastupem <= set(config.nedostupnosti["Alena"])
+    assert 10 not in config.nedostupnosti["Alena"]  # den nástupu už aktivní
+
+
+def test_odchod_uprostred_mesice_se_projevi_ve_vygenerovanem_rozpisu(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.deaktivovat_zamestnance(conn, id_, date(2026, 8, 15))
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config = config_pro_mesic(conn, 2026, 8)
+    schedule = generate_schedule(config, time_limit_s=10.0)
+    for den in range(16, 32):
+        assert schedule.smena_zamestnance("Alena", den) is None
+
+
 def test_deaktivovany_zamestnanec_neni_v_configu_pro_mesic(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     repo.deaktivovat_zamestnance(conn, id_, date(2026, 6, 30))

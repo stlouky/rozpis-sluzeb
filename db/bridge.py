@@ -58,6 +58,23 @@ def config_pro_mesic(
     nedostupnosti: dict[str, set[int]] = {}
     duvody_nedostupnosti: dict[str, dict[int, str]] = {}
     zakazane_smeny: dict[str, dict[int, tuple[str, ...]]] = {}
+
+    # Nástup/odchod uprostřed měsíce: aktivni_zamestnanci_v_obdobi vrátí
+    # zaměstnance, jehož aktivní interval se s měsícem JEN překrývá (viz
+    # repository.py) - bez tohohle by zůstal solveru "dostupný" i po dnech,
+    # kdy už fakticky není v pracovním poměru.
+    vsechny_dny_mesice = set(range(1, posledni_den.day + 1))
+    for z in aktivni:
+        aktivni_dny = set(
+            _dny_v_mesici(z.aktivni_od, z.aktivni_do or posledni_den, prvni_den, posledni_den)
+        )
+        mimo_pomer = vsechny_dny_mesice - aktivni_dny
+        if mimo_pomer:
+            nedostupnosti.setdefault(z.jmeno, set()).update(mimo_pomer)
+            duvody = duvody_nedostupnosti.setdefault(z.jmeno, {})
+            for den in mimo_pomer:
+                duvody[den] = "MIMO_POMER"
+
     for n in repo.nedostupnosti_v_obdobi(conn, prvni_den, posledni_den):
         jmeno = jmeno_podle_id.get(n.zamestnanec_id)
         if jmeno is None:
