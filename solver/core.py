@@ -48,7 +48,10 @@ def _diagnostikuj_nesplnitelnost(config: Config) -> list[str]:
 
     potreba_min_celkem = pocet_dni * (o.denni_min + o.nocni_min)
     kapacita_celkem = sum(
-        min(config.pravidla.max_smen_mesic, pocet_dni - len(nedostupny.get(jmeno, set())))
+        min(
+            config.max_smen_mesic_override.get(jmeno, config.pravidla.max_smen_mesic),
+            pocet_dni - len(nedostupny.get(jmeno, set())),
+        )
         for jmeno in config.jmena
     )
     if kapacita_celkem < potreba_min_celkem:
@@ -148,9 +151,11 @@ def generate_schedule(
             for typ in typy:
                 model.Add(smena[jmeno, den - 1, typ] == 0)
 
-    # Fond pracovní doby
+    # Fond pracovní doby (individuální strop viz Config.max_smen_mesic_override,
+    # jinak společný config.pravidla.max_smen_mesic)
     for z in lide:
-        model.Add(sum(pracuje[z, d] for d in dny) <= config.pravidla.max_smen_mesic)
+        strop = config.max_smen_mesic_override.get(z, config.pravidla.max_smen_mesic)
+        model.Add(sum(pracuje[z, d] for d in dny) <= strop)
 
     # --- měkká pravidla (optimalizační cíl) ---
     cile = []

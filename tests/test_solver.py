@@ -269,6 +269,28 @@ def test_config_odmitne_neplatny_typ_zakazane_smeny():
         zakladni_config(zakazane_smeny={"Alena": {1: ["X"]}})
 
 
+def test_individualni_strop_omezi_jen_dane_osoby(zakladni_schedule):
+    # Alena má snížený strop (brigádnice) - ostatní zůstávají na společném
+    # max_smen_mesic=15 z config.yaml, jen ona nesmí přes 5
+    config = zakladni_config(max_smen_mesic_override={"Alena": 5})
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    assert schedule.souhrn_zamestnance("Alena")["smeny"] <= 5
+
+    _, schedule_bez_stropu = zakladni_schedule
+    # sanity - bez individuálního stropu by Alena běžně měla víc než 5 směn
+    assert schedule_bez_stropu.souhrn_zamestnance("Alena")["smeny"] > 5
+
+
+def test_config_odmitne_neznameho_zamestnance_v_individualnim_stropu():
+    with pytest.raises(ConfigError):
+        zakladni_config(max_smen_mesic_override={"Neexistujici": 5})
+
+
+def test_config_odmitne_zaporny_individualni_strop():
+    with pytest.raises(ConfigError):
+        zakladni_config(max_smen_mesic_override={"Alena": -1})
+
+
 def test_random_seed_je_deterministicky():
     config = zakladni_config()
     a = generate_schedule(config, time_limit_s=TIME_LIMIT, random_seed=42)
