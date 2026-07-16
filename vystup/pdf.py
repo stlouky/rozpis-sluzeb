@@ -32,7 +32,7 @@ BARVA_DENNI = colors.HexColor("#FFE699")
 BARVA_NOCNI = colors.HexColor("#9DC3E6")
 BARVA_DOV = colors.HexColor("#A9D18E")
 BARVA_OST = colors.white
-BARVA_VIKEND = colors.HexColor("#EDEDED")
+BARVA_VIKEND = colors.HexColor("#D9D9D9")
 BARVA_MRIZKY = colors.HexColor("#BBBBBB")
 
 STITEK_OST = "OST"
