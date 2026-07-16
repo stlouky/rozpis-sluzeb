@@ -321,6 +321,35 @@ def test_nekompatibilni_dvojice_se_vyhybaji_spolecne_smene():
             )
 
 
+def test_zakazana_dvojice_nikdy_nesdili_smenu(zakladni_schedule):
+    config = zakladni_config(zakazane_dvojice=[["Cyril", "Karel"]])
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    for den in range(1, schedule.pocet_dni + 1):
+        s_cyril = schedule.smena_zamestnance("Cyril", den)
+        s_karel = schedule.smena_zamestnance("Karel", den)
+        if s_cyril is not None and s_karel is not None:
+            assert s_cyril != s_karel
+
+
+def test_zakazana_dvojice_je_tvrda_i_kdyz_to_jinak_nejde():
+    # na rozdíl od nekompatibilni_dvojice (měkké - penalizace, ale spolu smí,
+    # když jinak nejde) je zakazane_dvojice nesplnitelné, i kdyby to znamenalo
+    # žádné řešení: 2 lidé, noční potřebuje přesně oba každý den
+    config = zakladni_config(
+        zamestnanci=[{"jmeno": "Holfaier"}, {"jmeno": "Stloukal"}],
+        obsazeni=dict(denni_min=0, denni_max=0, nocni_min=2, nocni_max=2),
+        pravidla=dict(max_v_rade=31, max_smen_mesic=31),
+        zakazane_dvojice=[["Holfaier", "Stloukal"]],
+    )
+    with pytest.raises(NelzeSestavitError):
+        generate_schedule(config, time_limit_s=5.0)
+
+
+def test_config_odmitne_neznameho_zamestnance_v_zakazane_dvojici():
+    with pytest.raises(ConfigError):
+        zakladni_config(zakazane_dvojice=[["Neexistujici", "Alena"]])
+
+
 def test_nesplnitelne_zadani_vyhazuje_chybu_s_duvodem():
     # jen 2 lidé, ale potřeba min. 5 (3 denní + 2 noční) -> nesplnitelné
     # (spustí obě heuristiky najednou, viz izolované testy níže)

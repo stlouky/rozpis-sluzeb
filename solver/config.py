@@ -55,8 +55,14 @@ class Config:
     obsazeni: Obsazeni
     pravidla: Pravidla
     nedostupnosti: dict[str, tuple[int, ...]]
+    # Měkké pravidlo (penalizace vahy.nekompatibilni_penalizace) - spolu smí,
+    # jen když to jinak nejde (viz CLAUDE.md).
     nekompatibilni_dvojice: tuple[tuple[str, str], ...]
     vahy: Vahy
+    # Tvrdé pravidlo - na rozdíl od nekompatibilni_dvojice výš nesmí spolu
+    # sloužit NIKDY, ani kdyby to jinak nešlo (na zadání, ne standardní
+    # "fyzická výpomoc" pravidlo z CLAUDE.md).
+    zakazane_dvojice: tuple[tuple[str, str], ...] = field(default_factory=tuple)
     # Důvod nedostupnosti (DOV/NEM/OST/POZADAVEK) na den, jen pro zobrazení
     # ve výstupu (PDF apod.) - solver sám důvod nepotřebuje, mu stačí
     # `nedostupnosti` výš. Volitelné: config.yaml jej nezadává, jen db/bridge.py.
@@ -122,6 +128,13 @@ class Config:
                         f"Neslučitelná dvojice odkazuje na neznámého zaměstnance: {jmeno}"
                     )
 
+        for a, b in self.zakazane_dvojice:
+            for jmeno in (a, b):
+                if jmeno not in znama_jmena:
+                    raise ConfigError(
+                        f"Zakázaná dvojice odkazuje na neznámého zaměstnance: {jmeno}"
+                    )
+
         o = self.obsazeni
         if not (0 <= o.denni_min <= o.denni_max):
             raise ConfigError("obsazeni: denni_min musí být <= denni_max a >= 0.")
@@ -183,6 +196,7 @@ def config_from_dict(data: dict) -> Config:
             nedostupnosti=_nacti_nedostupnosti(data.get("nedostupnosti")),
             nekompatibilni_dvojice=_nacti_dvojice(data.get("nekompatibilni_dvojice")),
             vahy=vahy,
+            zakazane_dvojice=_nacti_dvojice(data.get("zakazane_dvojice")),
             duvody_nedostupnosti=_nacti_duvody_nedostupnosti(data.get("duvody_nedostupnosti")),
             zakazane_smeny=_nacti_zakazane_smeny(data.get("zakazane_smeny")),
             max_smen_mesic_override=_nacti_max_smen_mesic_override(

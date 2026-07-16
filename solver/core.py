@@ -143,6 +143,13 @@ def generate_schedule(
         for den in dny_volna:
             model.Add(pracuje[jmeno, den - 1] == 0)
 
+    # Zakázaná dvojice - na rozdíl od nekompatibilni_dvojice (měkké, viz
+    # cíl níž) nesmí spolu sloužit NIKDY, ani kdyby to jinak nešlo.
+    for a, b in config.zakazane_dvojice:
+        for d in dny:
+            for s in (D, N):
+                model.AddBoolOr(smena[a, d, s].Not(), smena[b, d, s].Not())
+
     # Nedostupnost jen pro konkrétní typ směny (viz Config.zakazane_smeny) -
     # na rozdíl od nedostupnosti výš tu člověk zůstává k dispozici pro
     # zbylý typ směny.
