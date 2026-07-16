@@ -95,6 +95,31 @@ def test_cli_pridat_nedostupnost_se_projevi_v_rozpisu(tmp_path, capsys):
         assert prvni_sloupec == "."
 
 
+def test_cli_pridat_dvojici_zakazano_se_projevi_v_rozpisu(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    _pridat_12_zamestnancu(cesta_db)
+    capsys.readouterr()
+
+    # id 3 = Cyril, id 11 = Karel (pořadí ve VSICH_12); v jmena tuple jsou
+    # tedy na 0-indexovaných pozicích 2 a 10 - v textovém řádku dne to podle
+    # to_text() odpovídá split()[2+pozice] (viz sousední test s Alenou = split()[2]).
+    main([
+        "--db", str(cesta_db), "pridat-dvojici", "3", "11", "--typ", "zakazano",
+    ])
+    capsys.readouterr()
+
+    main(["--db", str(cesta_db), "generuj", "2026", "8"])
+    vystup = capsys.readouterr().out
+
+    radky = {radek[:3]: radek for radek in vystup.splitlines()}
+    for den in range(1, 32):
+        klic = f"{den:2}."
+        casti = radky[klic].split()
+        smena_cyril, smena_karel = casti[4], casti[12]
+        if smena_cyril != "." and smena_karel != ".":
+            assert smena_cyril != smena_karel, f"den {den}: Cyril i Karel slouží {smena_cyril}"
+
+
 def test_cli_generuj_nesplnitelne_zadani_vypise_duvod_a_vraci_chybu(tmp_path, capsys):
     cesta_db = tmp_path / "test.db"
     # jen 2 zaměstnanci - min. obsazení (3 denní + 2 noční) je nesplnitelné

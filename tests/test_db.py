@@ -270,6 +270,36 @@ def test_dvojice_s_neaktivnim_clenem_se_v_mesici_ignoruje(conn):
     assert config_srpen.nekompatibilni_dvojice == ()
 
 
+def test_zakazana_dvojice_se_prevede_zvlast_od_nekompatibilni(conn):
+    id_a = repo.pridat_zamestnance(conn, "Holfaier", date(2020, 1, 1))
+    id_b = repo.pridat_zamestnance(conn, "Stloukal", date(2020, 1, 1))
+    for jmeno in ["Alena", "Bedřich", "Cyril", "Dana", "Emil", "Frantiska",
+                  "Gustav", "Hana", "Ivan", "Jitka"]:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    repo.pridat_dvojici(conn, id_a, id_b, typ="zakazano")
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert ("Holfaier", "Stloukal") in config.zakazane_dvojice
+    assert config.nekompatibilni_dvojice == ()
+
+
+def test_zakazana_dvojice_z_db_ovlivni_vygenerovany_rozpis(conn):
+    id_a = repo.pridat_zamestnance(conn, "Holfaier", date(2020, 1, 1))
+    id_b = repo.pridat_zamestnance(conn, "Stloukal", date(2020, 1, 1))
+    for jmeno in ["Alena", "Bedřich", "Cyril", "Dana", "Emil", "Frantiska",
+                  "Gustav", "Hana", "Ivan", "Jitka"]:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    repo.pridat_dvojici(conn, id_a, id_b, typ="zakazano")
+
+    config = config_pro_mesic(conn, 2026, 8)
+    schedule = generate_schedule(config, time_limit_s=10.0)
+    for den in range(1, schedule.pocet_dni + 1):
+        s_a = schedule.smena_zamestnance("Holfaier", den)
+        s_b = schedule.smena_zamestnance("Stloukal", den)
+        if s_a is not None and s_b is not None:
+            assert s_a != s_b
+
+
 def test_dvojice_z_db_ovlivni_vygenerovany_rozpis(conn):
     # end-to-end: dvojice zadaná přes DB musí reálně ovlivnit chování
     # solveru, ne jen projít konverzí na jména v configu (to už ověřuje

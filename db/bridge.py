@@ -93,11 +93,16 @@ def config_pro_mesic(
             for den in dny:
                 dny_omezeni[den] = dny_omezeni.get(den, ()) + (n.zakazana_smena,)
 
-    nekompatibilni_dvojice = [
-        [jmeno_podle_id[d.zamestnanec_a_id], jmeno_podle_id[d.zamestnanec_b_id]]
-        for d in repo.dvojice_vsechny(conn)
-        if d.zamestnanec_a_id in jmeno_podle_id and d.zamestnanec_b_id in jmeno_podle_id
-    ]
+    nekompatibilni_dvojice = []
+    zakazane_dvojice = []
+    for d in repo.dvojice_vsechny(conn):
+        if d.zamestnanec_a_id not in jmeno_podle_id or d.zamestnanec_b_id not in jmeno_podle_id:
+            continue
+        par = [jmeno_podle_id[d.zamestnanec_a_id], jmeno_podle_id[d.zamestnanec_b_id]]
+        if d.typ == "zakazano":
+            zakazane_dvojice.append(par)
+        else:
+            nekompatibilni_dvojice.append(par)
 
     with open(config_yaml_cesta, encoding="utf-8") as f:
         vahy_config = yaml.safe_load(f)
@@ -110,6 +115,7 @@ def config_pro_mesic(
         "pravidla": vahy_config["pravidla"],
         "nedostupnosti": {jmeno: sorted(dny) for jmeno, dny in nedostupnosti.items()},
         "nekompatibilni_dvojice": nekompatibilni_dvojice,
+        "zakazane_dvojice": zakazane_dvojice,
         "vahy": vahy_config.get("vahy", {}),
         "duvody_nedostupnosti": duvody_nedostupnosti,
         "zakazane_smeny": zakazane_smeny,

@@ -57,6 +57,12 @@ def _cmd_pridat_nedostupnost(args: argparse.Namespace) -> None:
     print(f"Nedostupnost přidána, id={id_}")
 
 
+def _cmd_pridat_dvojici(args: argparse.Namespace) -> None:
+    conn = _pripojit_a_inicializovat(Path(args.db))
+    id_ = repo.pridat_dvojici(conn, args.zamestnanec_a_id, args.zamestnanec_b_id, args.typ)
+    print(f"Dvojice přidána, id={id_}")
+
+
 def _cmd_seznam_zamestnancu(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
     datum = date.fromisoformat(args.datum) if args.datum else date.today()
@@ -119,6 +125,15 @@ def main(argv: list[str] | None = None) -> int:
         help="omezit jen na tento typ směny (bez zadání = celý den nedostupný)",
     )
     p.set_defaults(func=_cmd_pridat_nedostupnost)
+
+    p = sub.add_parser("pridat-dvojici", help="zadat dvojici (měkkou nebo tvrdou)")
+    p.add_argument("zamestnanec_a_id", type=int)
+    p.add_argument("zamestnanec_b_id", type=int)
+    p.add_argument(
+        "--typ", choices=["rozprostrit", "zakazano"], default="rozprostrit",
+        help="rozprostrit = měkké (penalizace), zakazano = tvrdé (nikdy spolu)",
+    )
+    p.set_defaults(func=_cmd_pridat_dvojici)
 
     p = sub.add_parser("seznam-zamestnancu", help="vypsat aktivní zaměstnance k datu")
     p.add_argument("--datum", help="YYYY-MM-DD, výchozí dnešek")

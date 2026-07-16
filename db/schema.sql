@@ -46,5 +46,7 @@ CREATE TABLE IF NOT EXISTS dvojice (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     zamestnanec_a_id INTEGER NOT NULL REFERENCES zamestnanec(id),
     zamestnanec_b_id INTEGER NOT NULL REFERENCES zamestnanec(id),
-    typ TEXT NOT NULL DEFAULT 'rozprostrit' CHECK (typ IN ('rozprostrit'))
+    -- 'rozprostrit' = měkké (penalizace, spolu smí když jinak nejde),
+    -- 'zakazano' = tvrdé (spolu nesmí NIKDY, viz solver.Config.zakazane_dvojice)
+    typ TEXT NOT NULL DEFAULT 'rozprostrit' CHECK (typ IN ('rozprostrit', 'zakazano'))
 );
