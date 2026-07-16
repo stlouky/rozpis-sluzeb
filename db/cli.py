@@ -50,6 +50,7 @@ def _cmd_pridat_nedostupnost(args: argparse.Namespace) -> None:
         date.fromisoformat(args.do),
         args.typ,
         args.poznamka,
+        args.zakazana_smena,
     )
     print(f"Nedostupnost přidána, id={id_}")
 
@@ -106,6 +107,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("do", help="YYYY-MM-DD")
     p.add_argument("typ", choices=["DOV", "NEM", "OST", "POZADAVEK"])
     p.add_argument("--poznamka")
+    p.add_argument(
+        "--zakazana-smena",
+        choices=["D", "N"],
+        help="omezit jen na tento typ směny (bez zadání = celý den nedostupný)",
+    )
     p.set_defaults(func=_cmd_pridat_nedostupnost)
 
     p = sub.add_parser("seznam-zamestnancu", help="vypsat aktivní zaměstnance k datu")

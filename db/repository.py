@@ -53,6 +53,7 @@ def _nedostupnost_z_radku(radek: sqlite3.Row) -> Nedostupnost:
         do=_na_datum(radek["do"]),
         typ=radek["typ"],
         poznamka=radek["poznamka"],
+        zakazana_smena=radek["zakazana_smena"],
     )
 
 
@@ -128,10 +129,14 @@ def pridat_nedostupnost(
     do: date,
     typ: str,
     poznamka: str | None = None,
+    zakazana_smena: str | None = None,
 ) -> int:
     kurzor = conn.execute(
-        "INSERT INTO nedostupnost (zamestnanec_id, od, do, typ, poznamka) VALUES (?, ?, ?, ?, ?)",
-        (zamestnanec_id, od.isoformat(), do.isoformat(), typ, poznamka),
+        """
+        INSERT INTO nedostupnost (zamestnanec_id, od, do, typ, poznamka, zakazana_smena)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (zamestnanec_id, od.isoformat(), do.isoformat(), typ, poznamka, zakazana_smena),
     )
     conn.commit()
     return kurzor.lastrowid

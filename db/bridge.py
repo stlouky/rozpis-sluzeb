@@ -57,15 +57,21 @@ def config_pro_mesic(
 
     nedostupnosti: dict[str, set[int]] = {}
     duvody_nedostupnosti: dict[str, dict[int, str]] = {}
+    zakazane_smeny: dict[str, dict[int, tuple[str, ...]]] = {}
     for n in repo.nedostupnosti_v_obdobi(conn, prvni_den, posledni_den):
         jmeno = jmeno_podle_id.get(n.zamestnanec_id)
         if jmeno is None:
             continue  # zaměstnanec v tomto měsíci není aktivní
         dny = _dny_v_mesici(n.od, n.do, prvni_den, posledni_den)
-        nedostupnosti.setdefault(jmeno, set()).update(dny)
-        duvody = duvody_nedostupnosti.setdefault(jmeno, {})
-        for den in dny:
-            duvody[den] = n.typ
+        if n.zakazana_smena is None:
+            nedostupnosti.setdefault(jmeno, set()).update(dny)
+            duvody = duvody_nedostupnosti.setdefault(jmeno, {})
+            for den in dny:
+                duvody[den] = n.typ
+        else:
+            dny_omezeni = zakazane_smeny.setdefault(jmeno, {})
+            for den in dny:
+                dny_omezeni[den] = dny_omezeni.get(den, ()) + (n.zakazana_smena,)
 
     nekompatibilni_dvojice = [
         [jmeno_podle_id[d.zamestnanec_a_id], jmeno_podle_id[d.zamestnanec_b_id]]
@@ -86,5 +92,6 @@ def config_pro_mesic(
         "nekompatibilni_dvojice": nekompatibilni_dvojice,
         "vahy": vahy_config.get("vahy", {}),
         "duvody_nedostupnosti": duvody_nedostupnosti,
+        "zakazane_smeny": zakazane_smeny,
     }
     return config_from_dict(data)

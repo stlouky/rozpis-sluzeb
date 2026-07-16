@@ -125,6 +125,36 @@ def test_nedostupnost_deaktivovaneho_zamestnance_se_ignoruje(conn):
     assert "Alena" not in config_srpen.nedostupnosti
 
 
+def test_zakazana_smena_se_neprojevi_jako_celodenni_nedostupnost(conn):
+    # "ne denní směnu" (zakazana_smena='D') musí skončit v config.zakazane_smeny,
+    # ne v config.nedostupnosti (tam by ji to vyřadilo z celého dne)
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(
+        conn, id_, date(2026, 8, 21), date(2026, 8, 21), "POZADAVEK",
+        poznamka="ne denní směnu", zakazana_smena="D",
+    )
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert "Alena" not in config.nedostupnosti
+    assert config.zakazane_smeny["Alena"][21] == ("D",)
+
+
+def test_zakazana_smena_z_db_ovlivni_vygenerovany_rozpis(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(
+        conn, id_, date(2026, 8, 21), date(2026, 8, 21), "POZADAVEK",
+        zakazana_smena="D",
+    )
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config = config_pro_mesic(conn, 2026, 8)
+    schedule = generate_schedule(config, time_limit_s=10.0)
+    assert schedule.smena_zamestnance("Alena", 21) != "D"
+
+
 def test_dvojice_se_prevedou_na_jmena_v_configu(conn):
     id_a = repo.pridat_zamestnance(conn, "Cyril", date(2020, 1, 1))
     id_b = repo.pridat_zamestnance(conn, "Karel", date(2020, 1, 1))

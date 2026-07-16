@@ -27,6 +27,7 @@ class Nedostupnost:
     do: date
     typ: str
     poznamka: str | None
+    zakazana_smena: str | None = None  # None = celý den, jinak 'D'/'N'
 
 
 @dataclass(frozen=True)
