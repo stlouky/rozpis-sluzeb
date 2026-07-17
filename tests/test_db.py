@@ -408,6 +408,97 @@ def test_ulozit_rozpis_nikdy_neprepise_zamcenou_smenu(conn):
     assert smeny[0].locked is True
 
 
+def test_ulozit_rozpis_konflikt_se_zamcenou_smenou_vraci_info_a_neprepise(conn):
+    # stejný scénář jako test výše (stejný zaměstnanec+datum, jiný typ),
+    # ale tady ověřujeme i návratovou hodnotu ulozit_rozpis - volající
+    # (web/CLI) potřebuje vědět, které konflikty se tiše zahodily.
+    id_alena = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_zamestnance(conn, "Bedřich", date(2020, 1, 1))
+
+    puvodni = Schedule(rok=2026, mesic=8, jmena=("Alena", "Bedřich"),
+                        smeny={("Alena", 1): "D", ("Bedřich", 1): "N"},
+                        status="OPTIMAL", cas_reseni=0.1)
+    preskocene_prvni = repo.ulozit_rozpis(conn, puvodni)
+    assert preskocene_prvni == []  # bez zamčených směn žádný konflikt nemůže nastat
+
+    zamcena = next(s for s in repo.smeny_v_mesici(conn, 2026, 8) if s.zamestnanec_id == id_alena)
+    repo.zamknout_smeny(conn, [zamcena.id])
+
+    # nový rozpis navrhuje pro Alenu 1.8. noční (kolize) a pro Bedřicha
+    # stejnou nezamčenou noční jako předtím (žádná kolize, ta se prostě
+    # smaže a zapíše znovu)
+    novy = Schedule(rok=2026, mesic=8, jmena=("Alena", "Bedřich"),
+                     smeny={("Alena", 1): "N", ("Bedřich", 1): "N"},
+                     status="OPTIMAL", cas_reseni=0.1)
+    preskocene = repo.ulozit_rozpis(conn, novy)
+
+    assert len(preskocene) == 1
+    konflikt = preskocene[0]
+    assert konflikt.zamestnanec_id == id_alena
+    assert konflikt.jmeno == "Alena"
+    assert konflikt.datum == date(2026, 8, 1)
+    assert konflikt.puvodni_typ == "D"
+    assert konflikt.novy_typ == "N"
+
+    # a DB skutečně odpovídá "locked vyhrává"
+    smeny = repo.smeny_v_mesici(conn, 2026, 8)
+    typ_podle_zamestnance = {s.zamestnanec_id: s.typ for s in smeny}
+    assert typ_podle_zamestnance[id_alena] == "D"
+
+
+def test_ulozit_rozpis_stejny_typ_jako_zamcena_smena_neni_konflikt(conn):
+    # pokud nový rozpis pro zamčený den navrhuje STEJNÝ typ, jde o no-op,
+    # ne o konflikt hodný nahlášení
+    id_alena = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    puvodni = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "D"},
+                        status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, puvodni)
+    zamcena = repo.smeny_v_mesici(conn, 2026, 8)[0]
+    repo.zamknout_smeny(conn, [zamcena.id])
+
+    stejny = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "D"},
+                       status="OPTIMAL", cas_reseni=0.1)
+    preskocene = repo.ulozit_rozpis(conn, stejny)
+
+    assert preskocene == []
+    smena = repo.smeny_v_mesici(conn, 2026, 8)[0]
+    assert smena.zamestnanec_id == id_alena
+    assert smena.typ == "D"
+
+
+def test_ulozit_rozpis_je_atomicka_pri_chybe_se_nic_neulozi(conn):
+    # smena.typ má CHECK IN ('D', 'N') - "X" vyhodí IntegrityError uprostřed
+    # zápisu. Ověřujeme, že celá operace je jedna transakce: ani zamčená
+    # směna, ani nic z nezamčených nových směn se nepropíše.
+    id_alena = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_zamestnance(conn, "Bedřich", date(2020, 1, 1))
+
+    puvodni = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "D"},
+                        status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, puvodni)
+    zamcena = repo.smeny_v_mesici(conn, 2026, 8)[0]
+    repo.zamknout_smeny(conn, [zamcena.id])
+
+    # pořadí v dict je insertion-order (Python 3.7+) - "Alena" je validní
+    # a zapsala by se první, "Bedřich" s neplatným typem shodí transakci
+    vadny = Schedule(
+        rok=2026, mesic=8, jmena=("Alena", "Bedřich"),
+        smeny={("Alena", 2): "D", ("Bedřich", 1): "X"},
+        status="OPTIMAL", cas_reseni=0.1,
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        repo.ulozit_rozpis(conn, vadny)
+
+    # DB je přesně tam, kde byla před neúspěšným voláním - žádná Alena 2.8.,
+    # žádný Bedřich, zamčená směna z 1.8. netknutá
+    smeny = repo.smeny_v_mesici(conn, 2026, 8)
+    assert len(smeny) == 1
+    assert smeny[0].zamestnanec_id == id_alena
+    assert smeny[0].datum == date(2026, 8, 1)
+    assert smeny[0].typ == "D"
+    assert smeny[0].locked is True
+
+
 def test_zamknout_a_odemknout_smeny(conn):
     repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     schedule = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "D"},

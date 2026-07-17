@@ -13,7 +13,7 @@ from pathlib import Path
 
 from solver.schedule import Schedule
 
-from .models import Dvojice, Nedostupnost, Smena, Uzivatel, Zamestnanec
+from .models import Dvojice, Nedostupnost, PreskocenaSmena, Smena, Uzivatel, Zamestnanec
 
 SCHEMA_CESTA = Path(__file__).resolve().parent / "schema.sql"
 
@@ -248,43 +248,70 @@ def odemknout_smeny(conn: sqlite3.Connection, seznam_id: list[int]) -> None:
     conn.commit()
 
 
-def ulozit_rozpis(conn: sqlite3.Connection, schedule: Schedule) -> None:
+def ulozit_rozpis(conn: sqlite3.Connection, schedule: Schedule) -> list[PreskocenaSmena]:
     """Uloží vygenerovaný Schedule (solver/schedule.py) do DB: smaže
     nezamčené směny daného měsíce a zapíše nové. Zamčené směny se NIKDY
     nepřepíšou ani nesmažou - pokud schedule pro zamčený (zaměstnanec,
     den) přináší jinou hodnotu, tenhle záznam se prostě přeskočí (locked
     vyhrává, viz CLAUDE.md klíčové workflow: zamknout minulost/odpracované
-    směny, přegenerovat jen zbytek).
+    směny, přegenerovat jen zbytek) - vrátí seznam takových konfliktů, ať
+    má volající (web/CLI) co ukázat, ne jen tichou ztrátu dat.
+
+    Celá operace (smazání + zápis) běží v jedné transakci - při jakékoli
+    chybě uprostřed se nic nepropíše (rollback), DB zůstane přesně tam,
+    kde byla před voláním.
     """
     prvni_den = date(schedule.rok, schedule.mesic, 1)
     posledni_den = date(schedule.rok, schedule.mesic, schedule.pocet_dni)
 
-    _smazat_nezamcene(conn, prvni_den, posledni_den)
+    try:
+        _smazat_nezamcene(conn, prvni_den, posledni_den)
 
-    zamestnanec_id_podle_jmena = {
-        radek["jmeno"]: radek["id"]
-        for radek in conn.execute("SELECT id, jmeno FROM zamestnanec").fetchall()
-    }
-    zamcene_dny = {
-        (radek["zamestnanec_id"], radek["datum"])
-        for radek in conn.execute(
-            "SELECT zamestnanec_id, datum FROM smena WHERE locked = 1 AND datum >= ? AND datum <= ?",
-            (prvni_den.isoformat(), posledni_den.isoformat()),
-        ).fetchall()
-    }
+        zamestnanec_id_podle_jmena = {
+            radek["jmeno"]: radek["id"]
+            for radek in conn.execute("SELECT id, jmeno FROM zamestnanec").fetchall()
+        }
+        zamcene_dny = {
+            (radek["zamestnanec_id"], radek["datum"]): radek["typ"]
+            for radek in conn.execute(
+                "SELECT zamestnanec_id, datum, typ FROM smena"
+                " WHERE locked = 1 AND datum >= ? AND datum <= ?",
+                (prvni_den.isoformat(), posledni_den.isoformat()),
+            ).fetchall()
+        }
 
-    for (jmeno, den), typ in schedule.smeny.items():
-        zamestnanec_id = zamestnanec_id_podle_jmena.get(jmeno)
-        if zamestnanec_id is None:
-            continue  # neznámé jméno - nemělo by nastat, radši nezahodit zbytek zápisu
-        datum = date(schedule.rok, schedule.mesic, den).isoformat()
-        if (zamestnanec_id, datum) in zamcene_dny:
-            continue  # locked směna se nikdy nepřepisuje
-        conn.execute(
-            "INSERT INTO smena (zamestnanec_id, datum, typ) VALUES (?, ?, ?)",
-            (zamestnanec_id, datum, typ),
-        )
-    conn.commit()
+        preskocene: list[PreskocenaSmena] = []
+        for (jmeno, den), typ in schedule.smeny.items():
+            zamestnanec_id = zamestnanec_id_podle_jmena.get(jmeno)
+            if zamestnanec_id is None:
+                continue  # neznámé jméno - nemělo by nastat, radši nezahodit zbytek zápisu
+            datum = date(schedule.rok, schedule.mesic, den).isoformat()
+            puvodni_typ = zamcene_dny.get((zamestnanec_id, datum))
+            if puvodni_typ is not None:
+                # locked směna se nikdy nepřepisuje - i kdyby nový typ byl
+                # stejný jako ten zamčený, jde o no-op, ne o konflikt
+                if puvodni_typ != typ:
+                    preskocene.append(
+                        PreskocenaSmena(
+                            zamestnanec_id=zamestnanec_id,
+                            jmeno=jmeno,
+                            datum=date.fromisoformat(datum),
+                            puvodni_typ=puvodni_typ,
+                            novy_typ=typ,
+                        )
+                    )
+                continue
+            conn.execute(
+                "INSERT INTO smena (zamestnanec_id, datum, typ) VALUES (?, ?, ?)",
+                (zamestnanec_id, datum, typ),
+            )
+    except Exception:
+        conn.rollback()
+        raise
+    else:
+        conn.commit()
+
+    return preskocene
 
 
 # --- dvojice ---

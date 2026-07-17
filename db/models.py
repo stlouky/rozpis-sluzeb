@@ -42,6 +42,19 @@ class Smena:
 
 
 @dataclass(frozen=True)
+class PreskocenaSmena:
+    """Záznam o konfliktu při ulozit_rozpis(): pro (zamestnanec_id, datum)
+    už existovala zamčená směna, takže nový typ z rozpisu se zahodil -
+    zamčená vždy vyhrává (viz db/repository.py)."""
+
+    zamestnanec_id: int
+    jmeno: str
+    datum: date
+    puvodni_typ: str  # co zůstalo (zamčená směna)
+    novy_typ: str  # co rozpis navrhoval a co se zahodilo
+
+
+@dataclass(frozen=True)
 class Dvojice:
     id: int
     zamestnanec_a_id: int
