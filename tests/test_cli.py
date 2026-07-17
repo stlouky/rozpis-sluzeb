@@ -8,6 +8,7 @@ import pytest
 from db import repository as repo
 from db.auth import overit_heslo
 from db.cli import main
+from solver.schedule import Schedule
 
 FIXTURES = Path(__file__).parent / "fixtures" / "import_txt"
 ZAMESTNANCI_FIKTIVNI = FIXTURES / "zamestnanci_fiktivni.txt"
@@ -156,6 +157,66 @@ def test_cli_generuj_s_pdf_ulozi_soubor(tmp_path, capsys):
     assert cesta_pdf.exists()
     assert cesta_pdf.read_bytes().startswith(b"%PDF")
     assert "PDF uloženo" in vystup
+
+
+def test_cli_generuj_ulozi_smeny_do_db(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    _pridat_12_zamestnancu(cesta_db)
+    capsys.readouterr()
+
+    main(["--db", str(cesta_db), "generuj", "2026", "8"])
+    vystup = capsys.readouterr().out
+    assert "uložen do DB" in vystup
+
+    conn = repo.pripojit(cesta_db)
+    smeny = repo.smeny_v_mesici(conn, 2026, 8)
+
+    # kompletní měsíc: každý den srpna má obsazení 3-4 denní / přesně 2
+    # noční (viz CLAUDE.md) - ověřuje se přímo na tom, co se reálně
+    # zapsalo do DB, ne na výstupu solveru
+    for den in range(1, 32):
+        smeny_dne = [s for s in smeny if s.datum == date(2026, 8, den)]
+        pocet_d = sum(1 for s in smeny_dne if s.typ == "D")
+        pocet_n = sum(1 for s in smeny_dne if s.typ == "N")
+        assert 3 <= pocet_d <= 4, f"den {den}: {pocet_d} denních směn v DB"
+        assert pocet_n == 2, f"den {den}: {pocet_n} nočních směn v DB"
+
+
+def test_cli_generuj_vypise_preskocene_konflikty_se_zamcenou_smenou(tmp_path, capsys, monkeypatch):
+    cesta_db = tmp_path / "test.db"
+    _pridat_12_zamestnancu(cesta_db)
+    capsys.readouterr()
+
+    conn = repo.pripojit(cesta_db)
+    zamestnanci = repo.aktivni_zamestnanci(conn, date(2026, 8, 1))
+    jmeno = zamestnanci[0].jmeno
+    jmena = tuple(z.jmeno for z in zamestnanci)
+
+    puvodni = Schedule(rok=2026, mesic=8, jmena=jmena, smeny={(jmeno, 1): "D"},
+                        status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, puvodni)
+    smena = repo.smeny_v_mesici(conn, 2026, 8)[0]
+    repo.zamknout_smeny(conn, [smena.id])
+
+    # generate_schedule zfalšovaný monkeypatchem - solver sám o sobě je
+    # nedeterministický bez explicitního seedu, takže by nešlo spolehlivě
+    # vynutit kolizi přesně na zamčený den; testuje se jen to, že CLI
+    # správně přečte a vypíše to, co ulozit_rozpis vrátí.
+    konfliktni = Schedule(rok=2026, mesic=8, jmena=jmena, smeny={(jmeno, 1): "N"},
+                           status="OPTIMAL", cas_reseni=0.05)
+    monkeypatch.setattr("db.cli.generate_schedule", lambda config: konfliktni)
+
+    main(["--db", str(cesta_db), "generuj", "2026", "8"])
+    vystup = capsys.readouterr().out
+
+    assert "1 směna(y) přeskočena" in vystup
+    assert jmeno in vystup
+    assert "zamčeno na D" in vystup
+    assert "navrhoval N" in vystup
+
+    # DB pořád má původní zamčenou hodnotu, ne tu z konfliktního rozpisu
+    smena_po = repo.smeny_v_mesici(conn, 2026, 8)[0]
+    assert smena_po.typ == "D"
 
 
 def test_cli_vytvorit_uzivatele_s_heslem_z_flagu(tmp_path, capsys):

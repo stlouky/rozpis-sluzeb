@@ -63,6 +63,7 @@ class MrizkaMesice:
     dny_tydne: list[str]
     vikendy: list[bool]
     radky: list[RadekZamestnance]
+    obsazeni: list[tuple[int, int]]  # (počet D, počet N) za den, stejné pořadí jako dny
 
 
 def _poznamky_v_mesici(
@@ -129,4 +130,5 @@ def sestavit_mrizku(conn: sqlite3.Connection, rok: int, mesic: int, je_admin: bo
         dny_tydne=[CZ_DNY[date(rok, mesic, d).weekday()] for d in dny],
         vikendy=[schedule.je_vikend(d) for d in dny],
         radky=radky,
+        obsazeni=[schedule.obsazeni_dne(d) for d in dny],
     )

@@ -49,6 +49,19 @@ def test_sestavit_mrizku_radky_jsou_abecedne_a_obsahuji_smeny(conn):
     assert bedrich.pocet_d == 0
 
 
+def test_sestavit_mrizku_obsazeni_je_pocet_d_n_za_den(conn):
+    _ulozit_zakladni_rozpis(conn)
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+
+    # 1.8.: Alena D, Bedřich N -> (1, 1); 2.8.: jen Bedřich N -> (0, 1);
+    # 3.8.: nikdo -> (0, 0)
+    assert mrizka.obsazeni[0] == (1, 1)
+    assert mrizka.obsazeni[1] == (0, 1)
+    assert mrizka.obsazeni[2] == (0, 0)
+    assert len(mrizka.obsazeni) == mrizka.dny[-1]  # jeden záznam na každý den měsíce
+
+
 def test_sestavit_mrizku_souhrn_pocita_d_n_vikend(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     # 1.8.2026 je sobota (víkend) - D tuhle sobotu, N v pondělí (ne víkend)
@@ -185,6 +198,12 @@ def test_admin_ma_navigaci_na_jiny_mesic(klient):
     odpoved = klient.get("/rozpis")
     assert "předchozí" in odpoved.text
     assert "další" in odpoved.text
+
+
+def test_rozpis_zobrazuje_radek_obsazeni(klient):
+    _prihlasit(klient, "admin", "tajneheslo")
+    odpoved = klient.get("/rozpis?mesic=2026-08")
+    assert "Obsazení" in odpoved.text
 
 
 def test_rozpis_bez_loginu_presmeruje_na_login(klient):

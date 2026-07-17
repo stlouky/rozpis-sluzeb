@@ -25,9 +25,9 @@
               {{ den }}<br><span class="den-tydne">{{ mrizka.dny_tydne[loop.index0] }}</span>
             </th>
           {% endfor %}
-          <th>D</th>
-          <th>N</th>
-          <th>Vík.</th>
+          <th class="sloupec-souhrn">D</th>
+          <th class="sloupec-souhrn">N</th>
+          <th class="sloupec-souhrn">Vík.</th>
         </tr>
       </thead>
       <tbody>
@@ -43,6 +43,17 @@
           </tr>
         {% endfor %}
       </tbody>
+      <tfoot>
+        <tr class="radek-obsazeni">
+          <td class="sloupec-jmeno">Obsazení</td>
+          {% for obsazeni_dne in mrizka.obsazeni -%}
+            <td class="{% if mrizka.vikendy[loop.index0] %}vikend{% endif %}">{{ obsazeni_dne[0] }}D<br>{{ obsazeni_dne[1] }}N</td>
+          {% endfor -%}
+          <td class="sloupec-souhrn"></td>
+          <td class="sloupec-souhrn"></td>
+          <td class="sloupec-souhrn"></td>
+        </tr>
+      </tfoot>
     </table>
   </div>
 

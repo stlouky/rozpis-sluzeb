@@ -184,7 +184,19 @@ def _cmd_generuj(args: argparse.Namespace) -> None:
     except NelzeSestavitError as e:
         print(e)
         raise SystemExit(1)
+
+    preskocene = repo.ulozit_rozpis(conn, schedule)
+
     print(schedule.to_text())
+    print(f"\nRozpis uložen do DB ({args.db}).")
+
+    if preskocene:
+        print(f"\n{len(preskocene)} směna(y) přeskočena kvůli zamčené kolizi:")
+        for p in preskocene:
+            print(
+                f"  - {p.jmeno} {p.datum.isoformat()}: zamčeno na {p.puvodni_typ}, "
+                f"nový rozpis navrhoval {p.novy_typ} - ponechána zamčená hodnota"
+            )
 
     if args.pdf:
         from vystup.pdf import vygenerovat_pdf

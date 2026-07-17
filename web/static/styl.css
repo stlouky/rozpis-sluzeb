@@ -103,7 +103,12 @@ button {
   font-size: 0.9rem;
 }
 
+/* max-width + centrování - na hodně širokém monitoru se tabulka nenatáhne
+   do nesmyslné šířky; overflow-x je záchranná síť pro úzké okno (mobil,
+   rozdělená obrazovka), kdy se min-width tabulky do kontejneru nevejde. */
 .mrizka-obal {
+  max-width: 90rem;
+  margin: 0 auto;
   overflow-x: auto;
 }
 
@@ -111,6 +116,9 @@ table.mrizka {
   border-collapse: collapse;
   font-size: 0.75rem;
   white-space: nowrap;
+  table-layout: fixed;
+  width: 100%;
+  min-width: 59rem;
 }
 
 table.mrizka th,
@@ -121,11 +129,21 @@ table.mrizka td {
 }
 
 table.mrizka .sloupec-jmeno {
+  width: 15rem;
   text-align: left;
   font-weight: bold;
   position: sticky;
   left: 0;
   background: var(--barva-pozadi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* sloupce dnů (bez explicitní šířky) a součtové sloupce si zbylou šířku
+   v table-layout:fixed rozdělí rovnoměrně samy - dny se tak na širokém
+   okně roztáhnou, jak žádá zadání */
+table.mrizka .sloupec-souhrn {
+  width: 2.6rem;
 }
 
 table.mrizka .den-tydne {
@@ -135,6 +153,14 @@ table.mrizka .den-tydne {
 
 table.mrizka .souhrn {
   font-weight: bold;
+}
+
+table.mrizka tfoot .radek-obsazeni td {
+  font-size: 0.62rem;
+  line-height: 1.2;
+  font-style: italic;
+  color: #555;
+  border-top: 2px solid var(--barva-mrizky);
 }
 
 /* Pořadí pravidel záměrně: .vikend nejdřív, barva směny/nedostupnosti
