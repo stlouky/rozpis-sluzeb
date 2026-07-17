@@ -1,0 +1,51 @@
+{% extends "_layout.html" %}
+{% block titulek %}Přepis {{ '%02d'|format(prepis.mesic) }}/{{ prepis.rok }} – Rozpis služeb{% endblock %}
+{% block obsah %}
+{% include "_hlavicka.html" %}
+<main>
+  <div class="mesic-nav">
+    {% if je_admin %}
+      <a href="/rozpis/prepis?mesic={{ predchozi_mesic }}">&larr; předchozí</a>
+    {% else %}
+      <span></span>
+    {% endif %}
+    <h1>Přepis do Cygnusu {{ '%02d'|format(prepis.mesic) }}/{{ prepis.rok }}</h1>
+    {% if je_admin %}
+      <a href="/rozpis/prepis?mesic={{ dalsi_mesic }}">další &rarr;</a>
+    {% endif %}
+  </div>
+
+  <p>
+    <a href="/rozpis/pdf?mesic={{ '%04d'|format(prepis.rok) }}-{{ '%02d'|format(prepis.mesic) }}">PDF na nástěnku</a>
+  </p>
+
+  <div class="prepis">
+    {% for radek in prepis.radky %}
+      <section class="prepis-zamestnanec">
+        <h2>{{ radek.jmeno }}</h2>
+        {% if radek.polozky %}
+          <ul class="prepis-seznam">
+            {% for p in radek.polozky %}
+              <li class="prepis-radek">
+                <span class="prepis-den">{{ p.den }}. ({{ p.den_tydne }})</span>
+                <span class="prepis-popis">{{ p.popis }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="prepis-prazdno">Bez záznamů.</p>
+        {% endif %}
+      </section>
+    {% endfor %}
+  </div>
+</main>
+<script>
+  // Odškrtávání při ručním přepisu do Cygnusu (úkol 7) - jen vizuální
+  // pomůcka na klik, nic se neukládá (obnovením stránky se vrátí vše zpět).
+  document.querySelectorAll(".prepis-radek").forEach(function (radek) {
+    radek.addEventListener("click", function () {
+      radek.classList.toggle("odskrtnuto");
+    });
+  });
+</script>
+{% endblock %}

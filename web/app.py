@@ -10,20 +10,23 @@ from __future__ import annotations
 import os
 import secrets
 import sqlite3
+import tempfile
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.background import BackgroundTask
 
 from db import repository as repo
-from db.bridge import config_pro_mesic
+from db.bridge import config_pro_mesic, schedule_z_db
 from db.cesta import vychozi_cesta_db
 from db.models import NastaveniProfilu, Nedostupnost, Uzivatel, Zamestnanec
 from solver.core import NelzeSestavitError, generate_schedule
+from vystup.pdf import vygenerovat_pdf
 
 from .auth import (
     MAX_STARI_SESSION_S,
@@ -38,6 +41,7 @@ from .auth import (
 )
 from .db import overit_databazi, ziskat_pripojeni
 from .mrizka import NAZEV_NEDOSTUPNOSTI, sestavit_mrizku
+from .prepis import sestavit_prepis
 
 ROOT = Path(__file__).resolve().parent
 
@@ -133,6 +137,23 @@ def _rozlozit_mesic(mesic: str | None) -> tuple[int, int]:
     return dnes.year, dnes.month
 
 
+def _cilovy_mesic(je_admin: bool, mesic: str | None) -> tuple[int, int]:
+    """Admin smí listovat libovolný měsíc (parametr mesic), role nahled
+    vidí VŽDY jen aktuální měsíc bez ohledu na to, co je v URL (viz
+    zadani-faze3-web.md) - sdíleno mezi /rozpis, /rozpis/prepis a
+    /rozpis/pdf, ať se tohle pravidlo nerozjede na tři místa zvlášť."""
+    if je_admin:
+        return _rozlozit_mesic(mesic)
+    dnes = date.today()
+    return dnes.year, dnes.month
+
+
+def _sousedni_mesice(rok: int, mes: int) -> tuple[str, str]:
+    predchozi_rok, predchozi_mes = (rok - 1, 12) if mes == 1 else (rok, mes - 1)
+    dalsi_rok, dalsi_mes = (rok + 1, 1) if mes == 12 else (rok, mes + 1)
+    return f"{predchozi_rok}-{predchozi_mes:02d}", f"{dalsi_rok}-{dalsi_mes:02d}"
+
+
 def _vykreslit_rozpis(
     request: Request,
     conn: sqlite3.Connection,
@@ -147,14 +168,13 @@ def _vykreslit_rozpis(
     ukazuje na téže stránce, ne na zvláštní), ať se mřížka nesestavuje
     na dvou místech dvakrát jinak."""
     mrizka = sestavit_mrizku(conn, rok, mes, je_admin=je_admin)
-    predchozi_rok, predchozi_mes = (rok - 1, 12) if mes == 1 else (rok, mes - 1)
-    dalsi_rok, dalsi_mes = (rok + 1, 1) if mes == 12 else (rok, mes + 1)
+    predchozi_mesic, dalsi_mesic = _sousedni_mesice(rok, mes)
     kontext = {
         "uzivatel": uzivatel,
         "je_admin": je_admin,
         "mrizka": mrizka,
-        "predchozi_mesic": f"{predchozi_rok}-{predchozi_mes:02d}",
-        "dalsi_mesic": f"{dalsi_rok}-{dalsi_mes:02d}",
+        "predchozi_mesic": predchozi_mesic,
+        "dalsi_mesic": dalsi_mesic,
         "vygenerovano": False,
         "generovani_status": None,
         "generovani_cas": None,
@@ -179,13 +199,7 @@ def rozpis_mesice(
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
     je_admin = uzivatel.role == "admin"
-    if je_admin:
-        rok, mes = _rozlozit_mesic(mesic)
-    else:
-        # role nahled vidí JEN aktuální měsíc - parametr mesic se ignoruje
-        # i kdyby ho někdo ručně přidal do URL (viz zadani-faze3-web.md)
-        dnes = date.today()
-        rok, mes = dnes.year, dnes.month
+    rok, mes = _cilovy_mesic(je_admin, mesic)
 
     return _vykreslit_rozpis(
         request, conn, uzivatel, rok, mes, je_admin,
@@ -660,3 +674,56 @@ def admin_nastaveni_ulozit(
 
     repo.ulozit_nastaveni(conn, nastaveni)
     return RedirectResponse(url="/admin/nastaveni", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# --- úkol 7: pohled pro přepis do Cygnusu ---
+
+@app.get("/rozpis/prepis")
+def rozpis_prepis(
+    request: Request,
+    mesic: str | None = None,
+    uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    je_admin = uzivatel.role == "admin"
+    rok, mes = _cilovy_mesic(je_admin, mesic)
+    prepis = sestavit_prepis(conn, rok, mes)
+    predchozi_mesic, dalsi_mesic = _sousedni_mesice(rok, mes)
+
+    return sablony.TemplateResponse(
+        request,
+        "prepis.html",
+        {
+            "uzivatel": uzivatel,
+            "je_admin": je_admin,
+            "prepis": prepis,
+            "predchozi_mesic": predchozi_mesic,
+            "dalsi_mesic": dalsi_mesic,
+        },
+    )
+
+
+@app.get("/rozpis/pdf")
+def rozpis_pdf(
+    mesic: str | None = None,
+    uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    """PDF na nástěnku - existující vystup.pdf.vygenerovat_pdf, jen route
+    + stažení (viz úkol 7 zadání - export je hotový, nic se tu znovu
+    neimplementuje). Zapisuje se do dočasného souboru, ať se
+    vygenerovat_pdf nemusí měnit - smaže se hned po odeslání odpovědi."""
+    je_admin = uzivatel.role == "admin"
+    rok, mes = _cilovy_mesic(je_admin, mesic)
+    schedule = schedule_z_db(conn, rok, mes)
+
+    fd, cesta = tempfile.mkstemp(suffix=".pdf")
+    os.close(fd)
+    vygenerovat_pdf(schedule, cesta)
+
+    return FileResponse(
+        cesta,
+        media_type="application/pdf",
+        filename=f"rozpis-{rok}-{mes:02d}.pdf",
+        background=BackgroundTask(os.unlink, cesta),
+    )

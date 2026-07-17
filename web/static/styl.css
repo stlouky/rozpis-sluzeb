@@ -337,3 +337,49 @@ table.mrizka .bunka {
   border-radius: 3px;
   margin-right: 0.3rem;
 }
+
+/* --- přepis do Cygnusu (úkol 7) --- */
+
+.prepis-zamestnanec {
+  margin-bottom: 1.5rem;
+}
+
+.prepis-zamestnanec h2 {
+  font-size: 1.1rem;
+  border-bottom: 1px solid var(--barva-ramecek);
+  padding-bottom: 0.25rem;
+}
+
+.prepis-prazdno {
+  color: #666;
+  font-style: italic;
+}
+
+/* "velké písmo" (zadání úkolu 7) - vedoucí to přepisuje ručně z
+   obrazovky, ať je to čitelné i z odstupu/na horším monitoru. */
+.prepis-seznam {
+  list-style: none;
+  padding: 0;
+  font-size: 1.3rem;
+}
+
+.prepis-radek {
+  display: flex;
+  gap: 1rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--barva-ramecek);
+  cursor: pointer;
+  user-select: none;
+}
+
+.prepis-den {
+  min-width: 6rem;
+  font-weight: bold;
+}
+
+/* Odškrtnutí je čistě vizuální (JS, nic se neukládá) - viz
+   web/sablony/prepis.html. */
+.prepis-radek.odskrtnuto {
+  text-decoration: line-through;
+  color: #999;
+}
