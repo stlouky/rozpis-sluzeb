@@ -41,8 +41,10 @@ vyžádání jako obvykle (další na řadě je Úkol 4).
 | — | `af421f8` | oprava (audit appky): 4 nálezy (validace `od<=do` u nedostupností, doménová minima v `nastaveni`, skloňování v hlášce o překryvu, validace `aktivni_do>=aktivni_od` při deaktivaci) |
 | 6 | `1729666` | admin: VYGENEROVAT - tlačítko na mřížce (měsíc + profil normalni/krizovy) → solver → uložení → potvrzení na mřížce; vždy pevný `random_seed` (num_search_workers=1, deterministické); nesplnitelnost se ukáže na mřížce s diagnostikou + "Zkusit krizový profil", HTTP 200 ne 500 |
 | 7 | `23ebbce` | pohled pro přepis do Cygnusu (`/rozpis/prepis`) - seznam po zaměstnancích, jen dny s čím přepsat, velké písmo, klikací odškrtávání (jen vizuální); `/rozpis/pdf` - tenká route nad hotovým `vystup.pdf.vygenerovat_pdf` |
+| — | `5c8ef26` | oprava (audit appky): PDF popiska "Řešení: ULOZENO" na nástěnce nahrazena vynecháním věty pro neřešená data; dočasný PDF soubor se uklidí i při výjimce |
+| 8 | `dd428dd` | admin: ruční úpravy - klik na nezamčenou buňku cykluje volno→D→N→volno (`POST /rozpis/bunka/{id}/{datum}`); nový `solver/validace.py` (validovat_rozpis) kontroluje tvrdá pravidla na hotovém rozpisu a jen OZNAČÍ porušení (neblokuje uložení - realita > solver); `Schedule.zamcene` nové pole, vyplňuje ho jen `schedule_z_db` |
 
-**Testy:** 273, celá sada zelená. Spouštět vždy
+**Testy:** 312, celá sada zelená. Spouštět vždy
 `.venv/bin/python -m pytest -q` (běží ~3–4 min kvůli solver testům).
 
 ## Reálný stav dat (`data/rozpis.db`, srpen 2026)
@@ -75,8 +77,7 @@ Systematicky vyzkoušeno, co by pomohlo:
 
 ## Rozdělané / nezačaté úkoly
 
-- **Úkol 8** — admin: ruční úpravy s validací — DALŠÍ NA ŘADĚ, nezačato.
-- Úkol 9 — nezačato.
+- **Úkol 9** — zamykání + přegenerování zbytku + diff — DALŠÍ NA ŘADĚ, nezačato.
 - Úkol 9b — samoobslužné podávání požadavků (zapsáno v
   `zadani-faze3-web.md`, revize dřívějšího "NEIMPLEMENTUJE SE") — nezačato.
 - Úkol 10 (deploy) — připraveno v `DEPLOY.md` (lokální, negitované),
