@@ -12,7 +12,6 @@ fungoval stejně i na serveru bez systémových fontů.
 
 from __future__ import annotations
 
-import unicodedata
 from datetime import date
 from pathlib import Path
 
@@ -60,22 +59,9 @@ def _je_vikend(schedule: Schedule, den: int) -> bool:
     return date(schedule.rok, schedule.mesic, den).weekday() >= 5
 
 
-def _razeni_klic(jmeno: str) -> str:
-    """Řadicí klíč necitlivý na diakritiku (č/ř/š/ž.. ať se řadí u c/r/s/z),
-    ať jde o abecední pořadí jako na nástěnce, i bez cs_CZ locale na serveru.
-    """
-    bez_diakritiky = unicodedata.normalize("NFKD", jmeno)
-    bez_diakritiky = "".join(z for z in bez_diakritiky if not unicodedata.combining(z))
-    return bez_diakritiky.casefold()
-
-
-def _serazena_jmena(schedule: Schedule) -> list[str]:
-    return sorted(schedule.jmena, key=_razeni_klic)
-
-
 def _hlavni_tabulka(schedule: Schedule) -> Table:
     dny = range(1, schedule.pocet_dni + 1)
-    jmena = _serazena_jmena(schedule)
+    jmena = list(schedule.jmena_serazena)
 
     radek_cisel = ["Jméno"] + [str(d) for d in dny]
     radek_dnu = [""] + [CZ_DNY[date(schedule.rok, schedule.mesic, d).weekday()] for d in dny]
@@ -146,7 +132,7 @@ def _hlavni_tabulka(schedule: Schedule) -> Table:
 
 def _souhrn_tabulka(schedule: Schedule) -> Table:
     data = [["Jméno", "Směn", "Hodin", "Nočních", "Víkend"]]
-    for jmeno in _serazena_jmena(schedule):
+    for jmeno in schedule.jmena_serazena:
         s = schedule.souhrn_zamestnance(jmeno)
         data.append([jmeno, s["smeny"], s["smeny"] * 12, s["nocni"], s["vikendy"]])
 

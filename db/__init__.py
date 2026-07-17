@@ -1,6 +1,6 @@
 """Datová vrstva nad SQLite (fáze 2) - repository pattern, čisté sqlite3."""
 
-from .bridge import config_pro_mesic
+from .bridge import config_pro_mesic, schedule_z_db
 from .models import Dvojice, Nedostupnost, PreskocenaSmena, Smena, Uzivatel, Zamestnanec
 from .repository import (
     aktivni_zamestnanci,
@@ -29,6 +29,7 @@ from .repository import (
 
 __all__ = [
     "config_pro_mesic",
+    "schedule_z_db",
     "Zamestnanec",
     "Nedostupnost",
     "Smena",

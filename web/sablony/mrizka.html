@@ -1,0 +1,57 @@
+{% extends "_layout.html" %}
+{% block titulek %}Rozpis {{ '%02d'|format(mrizka.mesic) }}/{{ mrizka.rok }} – Rozpis služeb{% endblock %}
+{% block obsah %}
+{% include "_hlavicka.html" %}
+<main>
+  <div class="mesic-nav">
+    {% if je_admin %}
+      <a href="/rozpis?mesic={{ predchozi_mesic }}">&larr; předchozí</a>
+    {% else %}
+      <span></span>
+    {% endif %}
+    <h1>{{ '%02d'|format(mrizka.mesic) }}/{{ mrizka.rok }}</h1>
+    {% if je_admin %}
+      <a href="/rozpis?mesic={{ dalsi_mesic }}">další &rarr;</a>
+    {% endif %}
+  </div>
+
+  <div class="mrizka-obal">
+    <table class="mrizka">
+      <thead>
+        <tr>
+          <th class="sloupec-jmeno">Jméno</th>
+          {% for den in mrizka.dny %}
+            <th class="{% if mrizka.vikendy[loop.index0] %}vikend{% endif %}">
+              {{ den }}<br><span class="den-tydne">{{ mrizka.dny_tydne[loop.index0] }}</span>
+            </th>
+          {% endfor %}
+          <th>D</th>
+          <th>N</th>
+          <th>Vík.</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for radek in mrizka.radky %}
+          <tr>
+            <td class="sloupec-jmeno">{{ radek.jmeno }}</td>
+            {% for bunka in radek.bunky -%}
+              <td class="bunka{% if mrizka.vikendy[loop.index0] %} vikend{% endif %}{% if bunka.trida %} {{ bunka.trida }}{% endif %}"{% if bunka.poznamka %} title="{{ bunka.poznamka }}"{% endif %}>{{ bunka.text }}</td>
+            {% endfor -%}
+            <td class="souhrn">{{ radek.pocet_d }}</td>
+            <td class="souhrn">{{ radek.pocet_n }}</td>
+            <td class="souhrn">{{ radek.pocet_vikendu }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="legenda">
+    <span class="stitek smena-d">D</span> denní
+    <span class="stitek smena-n">N</span> noční
+    <span class="stitek nedostupnost-dov">DOV</span> dovolená
+    <span class="stitek nedostupnost-jina">NEM/OST/POZ</span> ostatní nedostupnost
+    <span class="stitek vikend">víkend</span>
+  </p>
+</main>
+{% endblock %}

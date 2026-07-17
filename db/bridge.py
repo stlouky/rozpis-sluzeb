@@ -16,15 +16,17 @@ from pathlib import Path
 import yaml
 
 from solver.config import Config, config_from_dict
+from solver.schedule import Schedule
 
 from . import repository as repo
 
 DEFAULT_CONFIG_YAML = Path(__file__).resolve().parent.parent / "config.yaml"
 
 
-def _dny_v_mesici(od: date, do: date, prvni_den: date, posledni_den: date) -> list[int]:
+def dny_v_mesici(od: date, do: date, prvni_den: date, posledni_den: date) -> list[int]:
     """Ořízne interval [od, do] na rozsah měsíce [prvni_den, posledni_den]
-    a vrátí seznam dní v měsíci (1-indexováno).
+    a vrátí seznam dní v měsíci (1-indexováno). Veřejné - sdílené i s
+    web/mrizka.py (poznámky k nedostupnostem), ne jen s config_pro_mesic.
     """
     zacatek = max(od, prvni_den)
     konec = min(do, posledni_den)
@@ -69,7 +71,7 @@ def config_pro_mesic(
     vsechny_dny_mesice = set(range(1, posledni_den.day + 1))
     for z in aktivni:
         aktivni_dny = set(
-            _dny_v_mesici(z.aktivni_od, z.aktivni_do or posledni_den, prvni_den, posledni_den)
+            dny_v_mesici(z.aktivni_od, z.aktivni_do or posledni_den, prvni_den, posledni_den)
         )
         mimo_pomer = vsechny_dny_mesice - aktivni_dny
         if mimo_pomer:
@@ -82,7 +84,7 @@ def config_pro_mesic(
         jmeno = jmeno_podle_id.get(n.zamestnanec_id)
         if jmeno is None:
             continue  # zaměstnanec v tomto měsíci není aktivní
-        dny = _dny_v_mesici(n.od, n.do, prvni_den, posledni_den)
+        dny = dny_v_mesici(n.od, n.do, prvni_den, posledni_den)
         if n.zakazana_smena is None:
             nedostupnosti.setdefault(jmeno, set()).update(dny)
             duvody = duvody_nedostupnosti.setdefault(jmeno, {})
@@ -122,3 +124,45 @@ def config_pro_mesic(
         "max_smen_mesic_override": max_smen_mesic_override,
     }
     return config_from_dict(data)
+
+
+def schedule_z_db(conn: sqlite3.Connection, rok: int, mesic: int) -> Schedule:
+    """Sestaví Schedule (solver/schedule.py) z uložených směn v DB - pro
+    zobrazení (web mřížka úkol 3, přepis do Cygnusu úkol 7), ať se
+    obsazení/souhrn počítá stejnou logikou jako u PDF exportu
+    (vystup/pdf.py), ne duplicitně.
+
+    Na rozdíl od config_pro_mesic (DB -> vstup solveru) je tohle DB ->
+    výstupní tvar solveru, čistě pro čtení uložených dat.
+    """
+    prvni_den = date(rok, mesic, 1)
+    posledni_den = date(rok, mesic, calendar.monthrange(rok, mesic)[1])
+
+    aktivni = repo.aktivni_zamestnanci_v_obdobi(conn, prvni_den, posledni_den)
+    jmeno_podle_id = {z.id: z.jmeno for z in aktivni}
+    jmena = tuple(jmeno_podle_id.values())
+
+    smeny: dict[tuple[str, int], str] = {}
+    for s in repo.smeny_v_mesici(conn, rok, mesic):
+        jmeno = jmeno_podle_id.get(s.zamestnanec_id)
+        if jmeno is None:
+            continue  # zaměstnanec mimo aktivní rozsah měsíce (viz níž)
+        smeny[(jmeno, s.datum.day)] = s.typ
+
+    duvody_nedostupnosti: dict[tuple[str, int], str] = {}
+    for n in repo.nedostupnosti_v_obdobi(conn, prvni_den, posledni_den):
+        jmeno = jmeno_podle_id.get(n.zamestnanec_id)
+        if jmeno is None:
+            continue
+        for den in dny_v_mesici(n.od, n.do, prvni_den, posledni_den):
+            duvody_nedostupnosti.setdefault((jmeno, den), n.typ)
+
+    return Schedule(
+        rok=rok,
+        mesic=mesic,
+        jmena=jmena,
+        smeny=smeny,
+        status="ULOZENO",
+        cas_reseni=0.0,
+        duvody_nedostupnosti=duvody_nedostupnosti,
+    )

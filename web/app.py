@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import secrets
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, Request, status
@@ -30,6 +31,7 @@ from .auth import (
     vytvorit_session,
 )
 from .db import ziskat_pripojeni
+from .mrizka import sestavit_mrizku
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DB = ROOT.parent / "rozpis.db"
@@ -67,7 +69,7 @@ def login_odeslani(
         )
 
     token = vytvorit_session(uzivatel.id)
-    odpoved = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    odpoved = RedirectResponse(url="/rozpis", status_code=status.HTTP_303_SEE_OTHER)
     odpoved.set_cookie(
         NAZEV_COOKIE,
         podepsat_token(token, request.app.state.tajny_klic),
@@ -88,8 +90,58 @@ def logout(request: Request, uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni))
 
 
 @app.get("/")
-def index(request: Request, uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni)):
-    return sablony.TemplateResponse(request, "index.html", {"uzivatel": uzivatel})
+def index(uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni)):
+    return RedirectResponse(url="/rozpis", status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _rozlozit_mesic(mesic: str | None) -> tuple[int, int]:
+    """'YYYY-MM' -> (rok, měsíc). Chybějící nebo nevalidní hodnota tiše
+    spadne na aktuální měsíc - jde o pohodlnou výchozí stránku, ne API
+    s nutností hlásit chybu na překlep v URL."""
+    if mesic:
+        try:
+            rok_str, mesic_str = mesic.split("-")
+            rok, mes = int(rok_str), int(mesic_str)
+            if 1 <= mes <= 12:
+                return rok, mes
+        except ValueError:
+            pass
+    dnes = date.today()
+    return dnes.year, dnes.month
+
+
+@app.get("/rozpis")
+def rozpis_mesice(
+    request: Request,
+    mesic: str | None = None,
+    uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    je_admin = uzivatel.role == "admin"
+    if je_admin:
+        rok, mes = _rozlozit_mesic(mesic)
+    else:
+        # role nahled vidí JEN aktuální měsíc - parametr mesic se ignoruje
+        # i kdyby ho někdo ručně přidal do URL (viz zadani-faze3-web.md)
+        dnes = date.today()
+        rok, mes = dnes.year, dnes.month
+
+    mrizka = sestavit_mrizku(conn, rok, mes, je_admin=je_admin)
+
+    predchozi_rok, predchozi_mes = (rok - 1, 12) if mes == 1 else (rok, mes - 1)
+    dalsi_rok, dalsi_mes = (rok + 1, 1) if mes == 12 else (rok, mes + 1)
+
+    return sablony.TemplateResponse(
+        request,
+        "mrizka.html",
+        {
+            "uzivatel": uzivatel,
+            "je_admin": je_admin,
+            "mrizka": mrizka,
+            "predchozi_mesic": f"{predchozi_rok}-{predchozi_mes:02d}",
+            "dalsi_mesic": f"{dalsi_rok}-{dalsi_mes:02d}",
+        },
+    )
 
 
 @app.get("/admin")

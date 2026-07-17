@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 
 from db import repository as repo
-from db.bridge import config_pro_mesic
+from db.bridge import config_pro_mesic, schedule_z_db
 from solver.core import generate_schedule
 from solver.schedule import Schedule
 
@@ -572,3 +572,38 @@ def test_most_na_solver_end_to_end(conn):
         pocet_d, pocet_n = schedule.obsazeni_dne(den)
         assert config.obsazeni.denni_min <= pocet_d <= config.obsazeni.denni_max
         assert pocet_n == 2
+
+
+def test_schedule_z_db_sestavi_smeny_z_ulozeneho_rozpisu(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_zamestnance(conn, "Bedřich", date(2020, 1, 1))
+    puvodni = Schedule(rok=2026, mesic=8, jmena=("Alena", "Bedřich"),
+                        smeny={("Alena", 1): "D", ("Bedřich", 1): "N"},
+                        status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, puvodni)
+
+    schedule = schedule_z_db(conn, 2026, 8)
+    assert schedule.status == "ULOZENO"
+    assert set(schedule.jmena) == {"Alena", "Bedřich"}
+    assert schedule.smena_zamestnance("Alena", 1) == "D"
+    assert schedule.smena_zamestnance("Bedřich", 1) == "N"
+    assert schedule.smena_zamestnance("Alena", 2) is None
+
+
+def test_schedule_z_db_obsahuje_duvod_nedostupnosti(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 5), "DOV")
+
+    schedule = schedule_z_db(conn, 2026, 8)
+    assert schedule.duvod_nedostupnosti("Alena", 3) == "DOV"
+    assert schedule.duvod_nedostupnosti("Alena", 5) == "DOV"
+    assert schedule.duvod_nedostupnosti("Alena", 6) is None
+    assert schedule.smena_zamestnance("Alena", 3) is None
+
+
+def test_schedule_z_db_neaktivni_zamestnanec_se_neobjevi(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.deaktivovat_zamestnance(conn, id_, date(2025, 12, 31))
+
+    schedule = schedule_z_db(conn, 2026, 8)
+    assert "Alena" not in schedule.jmena

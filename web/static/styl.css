@@ -1,5 +1,4 @@
-/* Jeden CSS soubor pro celý web (viz CLAUDE.md). Barvy mřížky (žlutá D,
-   modrá N, zelená DOV) přibudou v úkolu 3 - tohle je zatím jen kostra. */
+/* Jeden CSS soubor pro celý web (viz CLAUDE.md). */
 
 :root {
   --barva-text: #1a1a1a;
@@ -7,6 +6,15 @@
   --barva-chyba: #b3261e;
   --barva-ramecek: #d0d0cc;
   --barva-akcent: #2c5f8a;
+
+  /* Stejné odstíny jako vystup/pdf.py (BARVA_*) - ať vedoucí vidí totéž
+     na zdi (PDF na nástěnce) i na webu, viz CLAUDE.md/zadani-faze3-web.md. */
+  --barva-denni: #ffe699;
+  --barva-nocni: #9dc3e6;
+  --barva-dov: #a9d18e;
+  --barva-nedostupnost-jina: #ececec;
+  --barva-vikend: #d9d9d9;
+  --barva-mrizky: #bbbbbb;
 }
 
 * {
@@ -73,4 +81,99 @@ button {
   background: transparent;
   color: var(--barva-text);
   border: 1px solid var(--barva-ramecek);
+}
+
+/* --- mřížka měsíce (úkol 3) --- */
+
+.mesic-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.mesic-nav h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.mesic-nav a {
+  color: var(--barva-akcent);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.mrizka-obal {
+  overflow-x: auto;
+}
+
+table.mrizka {
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+table.mrizka th,
+table.mrizka td {
+  border: 1px solid var(--barva-mrizky);
+  padding: 2px 4px;
+  text-align: center;
+}
+
+table.mrizka .sloupec-jmeno {
+  text-align: left;
+  font-weight: bold;
+  position: sticky;
+  left: 0;
+  background: var(--barva-pozadi);
+}
+
+table.mrizka .den-tydne {
+  font-weight: normal;
+  color: #666;
+}
+
+table.mrizka .souhrn {
+  font-weight: bold;
+}
+
+/* Pořadí pravidel záměrně: .vikend nejdřív, barva směny/nedostupnosti
+   (stejná specificita, pozdější pravidlo vyhrává) ji u obsazených buněk
+   překryje - prázdný víkendový den zůstane šedý, stejně jako v PDF. */
+.vikend {
+  background: var(--barva-vikend);
+}
+
+.bunka.smena-d {
+  background: var(--barva-denni);
+}
+
+.bunka.smena-n {
+  background: var(--barva-nocni);
+}
+
+.bunka.nedostupnost-dov {
+  background: var(--barva-dov);
+}
+
+.bunka.nedostupnost-jina {
+  background: var(--barva-nedostupnost-jina);
+  font-size: 0.65rem;
+}
+
+.legenda {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  align-items: center;
+}
+
+.stitek {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--barva-mrizky);
+  border-radius: 3px;
+  margin-right: 0.3rem;
 }

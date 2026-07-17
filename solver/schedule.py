@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
 
 CZ_DNY = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"]
+
+
+def _razeni_klic(jmeno: str) -> str:
+    """Řadicí klíč necitlivý na diakritiku (č/ř/š/ž.. ať se řadí u c/r/s/z),
+    ať jde o abecední pořadí jako na nástěnce, i bez cs_CZ locale na serveru.
+    """
+    bez_diakritiky = unicodedata.normalize("NFKD", jmeno)
+    bez_diakritiky = "".join(z for z in bez_diakritiky if not unicodedata.combining(z))
+    return bez_diakritiky.casefold()
 
 
 @dataclass(frozen=True)
@@ -31,6 +41,12 @@ class Schedule:
         import calendar
 
         return calendar.monthrange(self.rok, self.mesic)[1]
+
+    @property
+    def jmena_serazena(self) -> tuple[str, ...]:
+        """Jména abecedně, necitlivě na diakritiku - pořadí jako na nástěnce
+        (PDF export, web mřížka), sdíleno místo duplikování v obou."""
+        return tuple(sorted(self.jmena, key=_razeni_klic))
 
     def smena_zamestnance(self, jmeno: str, den: int) -> str | None:
         return self.smeny.get((jmeno, den))
