@@ -15,7 +15,8 @@ Python 3.12+, běh a testy VŽDY přes .venv (.venv/bin/python -m pytest)
 ## Doménová pravidla (NEMĚNIT bez zadání)
 
 Tvrdá:
-- denní směna (D): 3–4 lidi, noční (N): přesně 2 — platí každý den vč. víkendů a svátků
+- denní směna (D): 3–4 lidi, noční (N): tvrdě 1–2; normální profil vyžaduje 2,
+  krizový profil povolí 1 — platí každý den vč. víkendů a svátků
 - po noční NESMÍ následovat denní další den (N→D zakázáno, N→N ok)
 - max 2 noční v řadě, po nich povinně 2 dny volna (3 noční za sebou zakázáno)
 - max 3 směny v řadě, pak min 1 den volna
@@ -41,10 +42,10 @@ a odpracované směny, přegenerovat jen zbytek měsíce, ukázat diff.
 - při nesplnitelnosti VŽDY vypsat proč (které dny/pravidla kolidují)
 
 ## Stav
-- [x] prototyp solveru (rozpis.py) — funkční, pravidla ověřena
+- [x] prototyp solveru (archiv/rozpis.py) — funkční, pravidla ověřena
 - [x] fáze 1: modul + YAML konfigurace + testy
 - [x] fáze 2: SQLite (db/) + správa zaměstnanců a nedostupností + most na solver
-- [ ] fáze 3: FastAPI + barevná mřížka (žlutá D, modrá N, zelená DOV)
+- [x] fáze 5: PDF (A4 šířka, nástěnka) — vystup/pdf.py hotový vč. testů
+- [ ] fáze 3: FastAPI + login + barevná mřížka (žlutá D, modrá N, zelená DOV)
 - [ ] fáze 4: zamykání + přegenerování + diff
-- [ ] fáze 5: PDF (A4 šířka, nástěnka) + XLSX
-- [ ] fáze 6: login + deploy
+- [ ] fáze 6: deploy (Hetzner, systemd + Caddy)

@@ -1,0 +1,161 @@
+# Fáze 3+ — webové rozhraní (finální zadání pro Claude Code)
+
+Jednotlivé úkoly zadávej po jednom: úkol → testy → commit → /clear.
+Úkol 0 proveď PŘED vším ostatním — sladí CLAUDE.md s tímto zadáním,
+jinak si budou instrukce protiřečit.
+
+## Hlavní scénář (tomu je podřízeno všechno)
+
+Vedoucí otevře web, přihlásí se, zadá nedostupnosti a požadavky na příští
+měsíc, klikne "Vygenerovat" — a dostane rozpis, který ručně přepíše do
+Cygnusu. Přepis do Cygnusu je ZÁMĚRNĚ ruční, appka ho nenahrazuje.
+
+Druhý stejně důležitý scénář: velká fluktuace — přidání a odebrání
+zaměstnance musí být otázka pár kliknutí, včetně štítků a neslučitelných
+dvojic.
+
+Třetí scénář: změna v průběhu měsíce (nemoc) — zamknout co platí,
+přegenerovat zbytek, ukázat diff.
+
+## Stack — záměrně minimální
+
+- FastAPI + Jinja2 šablony (server-side rendering, žádné SPA)
+- Vanilla JS jen kde nutný — žádný npm, žádný build krok
+- Stávající db/, solver/, vystup/ se NEPŘEPISUJÍ — web je tenká vrstva
+  nad nimi; db/bridge.py je most DB → solver config
+- SQLite, žádný ORM; schéma v db/schema.sql, změny schématu jako
+  jednoduché ruční migrační skripty (SQLite CHECK změna = přetvoření tabulky)
+- Jeden CSS soubor, barvy jako Cygnus: žlutá = D, modrá = N,
+  zelená = DOV, ostatní nedostupnosti bílá/šedá s textem typu
+- Konvence repa platí i pro web: kód, komentáře, UI ČESKY
+  (uzivatel, smena, vyzadovat_admina — ne users/shift/require_admin)
+
+## Bezpečnostní invarianty (platí pro KAŽDÝ úkol)
+
+1. Reálná jména a osobní data NIKDY do gitu. Trackovaný config.yaml
+   obsahuje jen fiktivní ukázková data. Reálná data žijí výhradně
+   v gitignorované data/ (SQLite DB).
+2. Každá stránka kromě /login vyžaduje přihlášení. Neexistuje veřejná
+   URL s rozpisem. Web se NEDEPLOYUJE, dokud login nefunguje.
+3. Hesla bcrypt, server-side session, cookie HttpOnly + Secure +
+   SameSite=Lax. Žádný OAuth/JWT.
+4. Read-only role nemá routy pro zápis (server vrací 403, nejde jen
+   o skryté tlačítko). Read-only vidí mřížku vč. typů nedostupností
+   (stejně jako PDF na nástěnce), ale NIKDY poznámky.
+
+## Úkoly
+
+### Úkol 0 — sladit CLAUDE.md a uklidit
+- CLAUDE.md, Doménová pravidla: noční obsazení přepsat z "přesně 2" na
+  "tvrdě 1–2; normální profil vyžaduje 2, krizový povolí 1" (viz úkol 5)
+- CLAUDE.md, Stav: fáze 5 (PDF) označit [x] — vystup/pdf.py je hotový
+  vč. testů; nové pořadí fází: login je součást fáze 3 (první úkol),
+  deploy zůstává poslední
+- rozpis.py (starý prototyp) přesunout do archiv/ ať neslouží jako vzor
+- requirements.txt: přidat fastapi, uvicorn, jinja2, bcrypt,
+  python-multipart, itsdangerous (nebo ekvivalent pro podepsané session)
+- Commit, žádná další funkčnost
+
+### Úkol 1 — kostra webu + přihlášení
+- web/app.py (FastAPI), web/sablony/, web/static/
+- Nová tabulka uzivatel (jmeno, heslo_hash bcrypt, role: admin|nahled)
+  v db/schema.sql + repository funkce ve stylu stávajících
+- Login/logout, session, dependency vyzadovat_prihlaseni /
+  vyzadovat_admina
+- CLI příkaz (rozšířit db/cli.py): vytvořit uživatele, změnit heslo —
+  žádná registrace přes web (celkem ~3 účty: 2 admin, 1 sdílený náhled)
+- Testy: bez loginu → redirect na /login; role nahled na admin routu → 403
+
+### Úkol 2 — repository pro směny (prerekvizita mřížky)
+- db/repository.py dnes směny NEUMÍ (tabulka smena existuje, API ne —
+  viz komentář ve schema.sql). Doplnit ve stylu existujících funkcí:
+  ulozit_rozpis (smaže nezamčené směny měsíce a zapíše nové),
+  smeny_v_mesici, zamknout_smeny(seznam_id) / odemknout,
+  smazat_nezamcene_v_obdobi
+- Testy: ulozit_rozpis nikdy nepřepíše locked směnu
+
+### Úkol 3 — mřížka měsíce (výchozí stránka pro obě role)
+- GET /rozpis?mesic=YYYY-MM, default aktuální měsíc; role nahled vidí
+  JEN aktuální měsíc (bez navigace jinam), admin listuje libovolně
+- Řádky = zaměstnanci aktivní v daném měsíci, sloupce = dny; víkendy
+  vizuálně odlišené; barvy a rozložení co nejblíž PDF/Cygnusu, ať
+  vedoucí vidí totéž na zdi i na webu
+- Nedostupnosti: barva/typ ano, poznámka jen pro admina (tooltip)
+- Pod mřížkou souhrn per zaměstnanec: počet D, N, víkendových směn
+  (data už umí _souhrn_tabulka v PDF — stejná logika, ne kopie kódu:
+  vytáhnout do sdílené funkce ve vystup/ nebo solver/schedule.py)
+- Testy: nahled nevidí poznámku ani jiný měsíc
+
+### Úkol 4 — admin: správa zaměstnanců (fluktuace = priorita)
+- Seznam (default jen aktivní, přepínač "i bývalí"), přidání, oprava
+  jména, deaktivace k datu — repository funkce už existují
+  (pridat_zamestnance, deaktivovat_zamestnance, opravit_jmeno_zamestnance)
+- Ve formuláři zaměstnance rovnou: štítky (fyzicka_vypomoc) a
+  neslučitelné dvojice (pridat_dvojici existuje) — při nástupu nového
+  člověka se vše nastaví na jednom místě
+- Tvrdé smazání jen pro záznam bez jediné směny (omyl při zakládání);
+  jinak výhradně deaktivace — historie rozpisů se nesmí rozbít
+- Nástup/odchod uprostřed měsíce musí solver respektovat (bridge už
+  řeší přes aktivni_od/do — ověřit testem)
+- Testy: deaktivace zachová historii; nový zaměstnanec od 15. nedostane
+  směnu 10.
+
+### Úkol 5 — admin: nedostupnosti + parametry pravidel
+- CRUD nedostupností: zaměstnanec, od–do, typ, poznámka
+  (pridat_nedostupnost / zrusit_nedostupnost existují; doplnit editaci)
+- MIGRACE: CHECK na nedostupnost.typ rozšířit o 'SVZ'
+  (DOV/NEM/OST/SVZ/POZADAVEK) — v SQLite = nová tabulka + přelití dat
+- Překryvy nedostupností: varování, ne blokace
+- Nová tabulka nastaveni + formulář: obsazení D min/max, N min/max,
+  max_v_rade, max_smen_mesic, váhy — a DVA pojmenované profily:
+  "normalni" (N min 2) a "krizovy" (N min 1, případně vyšší fond)
+- config.yaml zůstává jen pro CLI/testy s fiktivními daty
+- Testy: změna parametru se propíše do generování; SVZ projde
+
+### Úkol 6 — admin: VYGENEROVAT (jádro hlavního scénáře)
+- Velké tlačítko na mřížce: měsíc + profil (normalni/krizovy) →
+  solver (přes db/bridge.config_pro_mesic + nastaveni z DB) →
+  ulozit_rozpis → mřížka s výsledkem
+- Synchronně s time_limit_s (30 s) + indikace běhu; žádné fronty
+- Při nesplnitelnosti: čitelně zobrazit výstup _diagnostikuj_nesplnitelnost
+  + jedním klikem "Zkusit krizový profil"
+- Testy: e2e na fiktivních datech; nesplnitelný scénář vrátí diagnostiku,
+  ne HTTP 500
+
+### Úkol 7 — pohled pro přepis do Cygnusu
+- Přepis je záměrně ruční → dát mu vlastní zobrazení: seznam po
+  zaměstnancích (abecedně, jako v Cygnusu), u každého chronologicky
+  dny + typ směny/nedostupnosti, velké písmo, řádek po řádku
+  odškrtávatelný (jen vizuálně, JS, nic se neukládá)
+- Tlačítko "PDF na nástěnku" → existující vystup.pdf.vygenerovat_pdf
+  (jen route + download, PDF je hotové)
+- Testy: obsah přepisového pohledu odpovídá mřížce
+
+### Úkol 8 — admin: ruční úpravy s validací
+- Klik na buňku → cyklus D/N/volno (jen admin, jen nezamčené)
+- Po změně validace tvrdých pravidel; porušení zobrazit, ale admin smí
+  vědomě uložit (realita > solver), porušené buňky označené
+- Testy: validátor chytí N→D, obsazení pod minimem, fond přes limit
+
+### Úkol 9 — zamykání + přegenerování zbytku + diff
+- Dny <= dnes zamčené automaticky; budoucí zamykání klikem/rozsahem
+- "Přegenerovat zbytek měsíce": locked směny jako fixní vstup solveru
+- Diff před uložením: kdo / den / bylo → bude; potvrdit / zahodit
+- Při nesplnitelnosti po zamčení: diagnostika + nabídka "odemknout
+  konfliktní směny" nebo krizový profil
+- Testy: locked se nezmění; diff odpovídá; nesplnitelno po zamčení
+  vrací použitelnou radu
+
+### Úkol 10 — deploy na Hetzner (až funguje 1–9 lokálně)
+- systemd unit podle vzoru rbscanneru, uvicorn na localhost:PORT
+- Caddy: subdoména + HTTPS, reverse proxy
+- Záloha: cron se sqlite3 data/rozpis.db ".backup ..." (NE cp za běhu),
+  rotace pár posledních kopií
+- Po nasazení ověřit: bez loginu se nikam nedostaneš
+
+## Co záměrně NEDĚLAT
+- Žádný React/Vue/HTMX, Tailwind, Docker, async fronty, websockety
+- Žádný export/API směrem do Cygnusu — přepis je záměrně ruční
+- Žádná samoobslužná registrace či reset hesla e-mailem
+- Zadávání požadavků zaměstnanci (fáze 7) se NEIMPLEMENTUJE — jen typ
+  POZADAVEK v datech zůstává, kdyby padlo rozhodnutí později
