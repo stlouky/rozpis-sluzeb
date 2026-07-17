@@ -73,19 +73,31 @@ def _pocet_plne_obsazenych_dni(config, schedule):
     )
 
 
-def test_plne_obsazeni_vaha_zvysuje_pocet_plne_obsazenych_dni(zakladni_schedule):
+def test_plne_obsazeni_vaha_zvysuje_pocet_plne_obsazenych_dni():
     # měkké pravidlo (váha plne_obsazeni=10) preferuje 4 lidi na denní
     # směně místo minima 3 (noční je vždy plná i bez téhle váhy, protože
     # nocni_min==nocni_max==2 je tvrdé omezení bez volnosti). Bez váhy (0)
-    # nemá solver důvod dávat přednost plnému obsazení před minimem -
-    # ověřeno experimentálně: váha=0 -> 13/31 plně obsazených dní,
-    # výchozí váha=10 -> 25/31.
-    config_s_vahou, schedule_s_vahou = zakladni_schedule
+    # nemá solver důvod dávat přednost plnému obsazení před minimem.
+    #
+    # Bez pevného random_seed běží solver na víc vláknech (portfolio search)
+    # a při váze 0 objektiv na počtu plných dnů vůbec nezávisí - mezi
+    # rovnocennými řešeními se vybírá libovolně, takže počet plných dnů
+    # kolísal mezi jednotlivými spuštěními (pozorováno 13 i 25/31 pro stejný
+    # config). Pevný seed vynutí jedno vlákno (viz generate_schedule) a tedy
+    # reprodukovatelný výsledek - srovnání zůstává na nerovnosti počtu dnů,
+    # ne na přesné hodnotě objective, protože rovnocenných řešení je víc.
+    SEED = 42
+    config_s_vahou = zakladni_config()
+    schedule_s_vahou = generate_schedule(
+        config_s_vahou, time_limit_s=TIME_LIMIT, random_seed=SEED
+    )
     config_bez_vahy = zakladni_config(
         vahy=dict(plne_obsazeni=0, ferovost_nocni=5, ferovost_vikendy=3,
                   ferovost_celkem=4, nekompatibilni_penalizace=8)
     )
-    schedule_bez_vahy = generate_schedule(config_bez_vahy, time_limit_s=TIME_LIMIT)
+    schedule_bez_vahy = generate_schedule(
+        config_bez_vahy, time_limit_s=TIME_LIMIT, random_seed=SEED
+    )
 
     plnych_s_vahou = _pocet_plne_obsazenych_dni(config_s_vahou, schedule_s_vahou)
     plnych_bez_vahy = _pocet_plne_obsazenych_dni(config_bez_vahy, schedule_bez_vahy)
