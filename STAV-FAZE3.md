@@ -40,8 +40,9 @@ vyžádání jako obvykle (další na řadě je Úkol 4).
 | — | `f35f553` | migrace na `data/rozpis.db` provedena (SVZ CHECK + tabulka `nastaveni`), `.gitignore` o `*.bak` |
 | — | `af421f8` | oprava (audit appky): 4 nálezy (validace `od<=do` u nedostupností, doménová minima v `nastaveni`, skloňování v hlášce o překryvu, validace `aktivni_do>=aktivni_od` při deaktivaci) |
 | 6 | `1729666` | admin: VYGENEROVAT - tlačítko na mřížce (měsíc + profil normalni/krizovy) → solver → uložení → potvrzení na mřížce; vždy pevný `random_seed` (num_search_workers=1, deterministické); nesplnitelnost se ukáže na mřížce s diagnostikou + "Zkusit krizový profil", HTTP 200 ne 500 |
+| 7 | `23ebbce` | pohled pro přepis do Cygnusu (`/rozpis/prepis`) - seznam po zaměstnancích, jen dny s čím přepsat, velké písmo, klikací odškrtávání (jen vizuální); `/rozpis/pdf` - tenká route nad hotovým `vystup.pdf.vygenerovat_pdf` |
 
-**Testy:** 261, celá sada zelená. Spouštět vždy
+**Testy:** 273, celá sada zelená. Spouštět vždy
 `.venv/bin/python -m pytest -q` (běží ~3–4 min kvůli solver testům).
 
 ## Reálný stav dat (`data/rozpis.db`, srpen 2026)
@@ -74,8 +75,8 @@ Systematicky vyzkoušeno, co by pomohlo:
 
 ## Rozdělané / nezačaté úkoly
 
-- **Úkol 7** — pohled pro přepis do Cygnusu — DALŠÍ NA ŘADĚ, nezačato.
-- Úkoly 8–9 — nezačato.
+- **Úkol 8** — admin: ruční úpravy s validací — DALŠÍ NA ŘADĚ, nezačato.
+- Úkol 9 — nezačato.
 - Úkol 9b — samoobslužné podávání požadavků (zapsáno v
   `zadani-faze3-web.md`, revize dřívějšího "NEIMPLEMENTUJE SE") — nezačato.
 - Úkol 10 (deploy) — připraveno v `DEPLOY.md` (lokální, negitované),
@@ -163,10 +164,17 @@ předem" než na ostrá data.
 - **DEPLOY.md** je gitignorovaný — jen lokálně, nekopírovat do commitů.
 - Solver testy jsou pomalé (~3–4 min na celou sadu) — při rychlé iteraci
   spouštět jen relevantní soubor, plnou sadu před commitem.
+- **Úkol 7 rozhodnutí bez explicitního zadání:** `/rozpis/prepis` a
+  `/rozpis/pdf` jsou přístupné OBĚMA rolím (stejně jako `/rozpis`, nahled
+  jen aktuální měsíc) - zadání to neřeklo výslovně (na rozdíl od
+  úkolů 4-6, které mají v názvu "admin:"). Odůvodnění: přepis neukazuje
+  nic, co by nahled neviděl už na mřížce (žádná poznámka), a "PDF na
+  nástěnku" dává smysl i pro čtení, ne jen generování. Pokud se ukáže,
+  že to má být jen pro admina, stačí přidat `Depends(vyzadovat_admina)`.
 
 ## Zavedené konvence z průběhu (nejsou v zadání explicitně, ale ustálily se)
 
-- Sdílená logika mezi PDF a webem (a budoucím přepisem, úkol 7) jde přes
+- Sdílená logika mezi PDF, mřížkou a přepisem (úkol 7) jde přes
   `Schedule` (`solver/schedule.py`) — `db.bridge.schedule_z_db()`
   sestaví `Schedule` z uložených dat v DB stejně, jako `generate_schedule`
   vrací `Schedule` ze solveru. Nová logika zobrazení patří sem, ne jako
