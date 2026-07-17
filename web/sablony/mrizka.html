@@ -15,6 +15,50 @@
     {% endif %}
   </div>
 
+  {% if je_admin %}
+    <div class="generovani">
+      {% if vygenerovano %}
+        <p class="uspech">
+          Rozpis vygenerován ({{ generovani_status }}, {{ generovani_cas }}&nbsp;s).
+          {% if preskoceno == 1 %}
+            1 směna přeskočena kvůli zamčené kolizi - zamčená hodnota zůstala zachována.
+          {% elif preskoceno > 0 and preskoceno < 5 %}
+            {{ preskoceno }} směny přeskočeny kvůli zamčené kolizi - zamčená hodnota zůstala zachována.
+          {% elif preskoceno >= 5 %}
+            {{ preskoceno }} směn přeskočeno kvůli zamčené kolizi - zamčená hodnota zůstala zachována.
+          {% endif %}
+        </p>
+      {% endif %}
+
+      {% if chyba_generovani %}
+        <div class="chyba">
+          <p>Rozpis ({{ profil_generovani_nazev }} profil) nelze sestavit — nesplnitelná pravidla:</p>
+          <ul>
+            {% for duvod in chyba_generovani %}<li>{{ duvod }}</li>{% endfor %}
+          </ul>
+          {% if profil_generovani != 'krizovy' %}
+            <form method="post" action="/rozpis/generovat" class="forma-inline">
+              <input type="hidden" name="mesic" value="{{ mrizka.rok }}-{{ '%02d'|format(mrizka.mesic) }}">
+              <input type="hidden" name="profil" value="krizovy">
+              <button type="submit">Zkusit krizový profil</button>
+            </form>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <form method="post" action="/rozpis/generovat" class="formular-generovani" id="form-generovani">
+        <input type="hidden" name="mesic" value="{{ mrizka.rok }}-{{ '%02d'|format(mrizka.mesic) }}">
+        <label>Profil
+          <select name="profil">
+            <option value="normalni">normální</option>
+            <option value="krizovy">krizový</option>
+          </select>
+        </label>
+        <button type="submit" id="btn-generovat">Vygenerovat rozpis</button>
+      </form>
+    </div>
+  {% endif %}
+
   <div class="mrizka-obal">
     <table class="mrizka">
       <thead>
@@ -66,4 +110,16 @@
     <span class="stitek vikend">víkend</span>
   </p>
 </main>
+{% if je_admin %}
+<script>
+  // Indikace běhu (úkol 6) - solver běží synchronně až GENEROVANI_TIME_LIMIT_S
+  // (30 s), ať je vidět, že se stránka nezasekla, ne že nereaguje. Čistě
+  // kosmetické - bez JS formulář odešle normálně, jen bez indikace.
+  document.getElementById("form-generovani").addEventListener("submit", function () {
+    var tlacitko = document.getElementById("btn-generovat");
+    tlacitko.disabled = true;
+    tlacitko.textContent = "Generuji…";
+  });
+</script>
+{% endif %}
 {% endblock %}

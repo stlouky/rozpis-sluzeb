@@ -20,8 +20,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from db import repository as repo
+from db.bridge import config_pro_mesic
 from db.cesta import vychozi_cesta_db
 from db.models import NastaveniProfilu, Nedostupnost, Uzivatel, Zamestnanec
+from solver.core import NelzeSestavitError, generate_schedule
 
 from .auth import (
     MAX_STARI_SESSION_S,
@@ -131,10 +133,48 @@ def _rozlozit_mesic(mesic: str | None) -> tuple[int, int]:
     return dnes.year, dnes.month
 
 
+def _vykreslit_rozpis(
+    request: Request,
+    conn: sqlite3.Connection,
+    uzivatel: Uzivatel,
+    rok: int,
+    mes: int,
+    je_admin: bool,
+    **extra,
+):
+    """Sestaví a vykreslí mřížku měsíce - sdíleno mezi GET /rozpis (běžné
+    zobrazení) a POST /rozpis/generovat (výsledek/chyba generování se
+    ukazuje na téže stránce, ne na zvláštní), ať se mřížka nesestavuje
+    na dvou místech dvakrát jinak."""
+    mrizka = sestavit_mrizku(conn, rok, mes, je_admin=je_admin)
+    predchozi_rok, predchozi_mes = (rok - 1, 12) if mes == 1 else (rok, mes - 1)
+    dalsi_rok, dalsi_mes = (rok + 1, 1) if mes == 12 else (rok, mes + 1)
+    kontext = {
+        "uzivatel": uzivatel,
+        "je_admin": je_admin,
+        "mrizka": mrizka,
+        "predchozi_mesic": f"{predchozi_rok}-{predchozi_mes:02d}",
+        "dalsi_mesic": f"{dalsi_rok}-{dalsi_mes:02d}",
+        "vygenerovano": False,
+        "generovani_status": None,
+        "generovani_cas": None,
+        "preskoceno": 0,
+        "chyba_generovani": None,
+        "profil_generovani": None,
+        "profil_generovani_nazev": None,
+    }
+    kontext.update(extra)
+    return sablony.TemplateResponse(request, "mrizka.html", kontext)
+
+
 @app.get("/rozpis")
 def rozpis_mesice(
     request: Request,
     mesic: str | None = None,
+    vygenerovano: bool = False,
+    generovani_status: str | None = None,
+    generovani_cas: float | None = None,
+    preskoceno: int = 0,
     uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni),
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
@@ -147,22 +187,57 @@ def rozpis_mesice(
         dnes = date.today()
         rok, mes = dnes.year, dnes.month
 
-    mrizka = sestavit_mrizku(conn, rok, mes, je_admin=je_admin)
-
-    predchozi_rok, predchozi_mes = (rok - 1, 12) if mes == 1 else (rok, mes - 1)
-    dalsi_rok, dalsi_mes = (rok + 1, 1) if mes == 12 else (rok, mes + 1)
-
-    return sablony.TemplateResponse(
-        request,
-        "mrizka.html",
-        {
-            "uzivatel": uzivatel,
-            "je_admin": je_admin,
-            "mrizka": mrizka,
-            "predchozi_mesic": f"{predchozi_rok}-{predchozi_mes:02d}",
-            "dalsi_mesic": f"{dalsi_rok}-{dalsi_mes:02d}",
-        },
+    return _vykreslit_rozpis(
+        request, conn, uzivatel, rok, mes, je_admin,
+        vygenerovano=vygenerovano,
+        generovani_status=generovani_status,
+        generovani_cas=generovani_cas,
+        preskoceno=preskoceno,
     )
+
+
+# --- úkol 6: admin - VYGENEROVAT ---
+
+GENEROVANI_TIME_LIMIT_S = 30.0
+# Pevný seed vynucuje num_search_workers=1 (viz solver/core.py) - server
+# sdílí 2 vCPU s rbscannerem, úloha je malá, takže rychlost neutrpí; vedlejší
+# efekt je deterministický výsledek, stejně jako v testech (viz zadani-faze3-web.md).
+GENEROVANI_SEED = 42
+
+PROFILY_NAZVY = {"normalni": "normální", "krizovy": "krizový"}
+
+
+@app.post("/rozpis/generovat")
+def rozpis_generovat(
+    request: Request,
+    mesic: str = Form(...),
+    profil: str = Form("normalni"),
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    rok, mes = _rozlozit_mesic(mesic)
+    config = config_pro_mesic(conn, rok, mes, profil=profil)
+    try:
+        schedule = generate_schedule(
+            config, time_limit_s=GENEROVANI_TIME_LIMIT_S, random_seed=GENEROVANI_SEED
+        )
+    except NelzeSestavitError as e:
+        # Nesplnitelnost se ukáže rovnou na mřížce (ne HTTP 500) - viz
+        # solver.core._diagnostikuj_nesplnitelnost pro obsah e.duvody.
+        return _vykreslit_rozpis(
+            request, conn, uzivatel, rok, mes, je_admin=True,
+            chyba_generovani=e.duvody,
+            profil_generovani=profil,
+            profil_generovani_nazev=PROFILY_NAZVY.get(profil, profil),
+        )
+
+    preskocene = repo.ulozit_rozpis(conn, schedule)
+    url = (
+        f"/rozpis?mesic={rok}-{mes:02d}&vygenerovano=1"
+        f"&generovani_status={schedule.status}&generovani_cas={schedule.cas_reseni:.1f}"
+        f"&preskoceno={len(preskocene)}"
+    )
+    return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.get("/admin")

@@ -4,6 +4,7 @@
   --barva-text: #1a1a1a;
   --barva-pozadi: #f7f7f5;
   --barva-chyba: #b3261e;
+  --barva-uspech: #2e7d32;
   --barva-ramecek: #d0d0cc;
   --barva-akcent: #2c5f8a;
 
@@ -155,6 +156,40 @@ table.seznam form {
 .formular fieldset {
   border: 1px solid var(--barva-ramecek);
   border-radius: 4px;
+}
+
+/* --- rozpis: VYGENEROVAT (úkol 6) --- */
+
+.generovani {
+  margin-bottom: 1rem;
+}
+
+.generovani .uspech {
+  color: var(--barva-uspech);
+}
+
+.generovani ul {
+  margin: 0.25rem 0;
+}
+
+/* Formulář profil + tlačítko vedle sebe, ne pod sebou jako .formular. */
+.formular-generovani {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.formular-generovani label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+/* Malé tlačítko "Zkusit krizový profil" uvnitř chybové hlášky - vedle
+   textu, ne na vlastním řádku (stejný vzor jako table.seznam form). */
+.forma-inline {
+  display: inline;
 }
 
 /* --- mřížka měsíce (úkol 3) --- */
