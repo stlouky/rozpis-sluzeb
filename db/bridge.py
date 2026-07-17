@@ -100,6 +100,8 @@ def config_pro_mesic(
                 duvody[den] = "MIMO_POMER"
 
     for n in repo.nedostupnosti_v_obdobi(conn, prvni_den, posledni_den):
+        if n.stav != "schvaleno":
+            continue  # nepotvrzený/zamítnutý požadavek (úkol 9b) - do rozpisu se nepromítne
         jmeno = jmeno_podle_id.get(n.zamestnanec_id)
         if jmeno is None:
             continue  # zaměstnanec v tomto měsíci není aktivní

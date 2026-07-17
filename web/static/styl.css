@@ -449,6 +449,45 @@ table.mrizka tfoot .radek-obsazeni td.porusena {
   font-weight: bold;
 }
 
+/* --- požadavky (úkol 9b) --- */
+
+.prepinac-skryt-vyrizene {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+/* Čistě CSS přepínač (žádný JS potřeba, na rozdíl od klikacího cyklu
+   buňky v úkolu 9) - zaškrtnutí schová řádky vyřízených požadavků
+   přes obecného sourozence, checkbox proto musí v DOM předcházet
+   tabulce (viz web/sablony/pozadavky.html). */
+#skryt-vyrizene:checked ~ #tabulka-pozadavku tr.vyrizeno {
+  display: none;
+}
+
+.stav-pozadavku {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.9rem;
+}
+
+.stav-pozadavku.stav-podano {
+  background: #fff3cd;
+}
+
+.stav-pozadavku.stav-schvaleno {
+  background: var(--barva-uspech);
+  color: white;
+}
+
+.stav-pozadavku.stav-zamitnuto {
+  background: var(--barva-chyba);
+  color: white;
+}
+
 /* Odškrtnutí je čistě vizuální (JS, nic se neukládá) - viz
    web/sablony/prepis.html. */
 .prepis-radek.odskrtnuto {

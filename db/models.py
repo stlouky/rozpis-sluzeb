@@ -31,6 +31,7 @@ class Nedostupnost:
     typ: str
     poznamka: str | None
     zakazana_smena: str | None = None  # None = celý den, jinak 'D'/'N'
+    stav: str = "schvaleno"  # 'podano' | 'schvaleno' | 'zamitnuto' - viz úkol 9b
 
 
 @dataclass(frozen=True)

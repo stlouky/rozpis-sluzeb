@@ -693,6 +693,113 @@ def admin_nedostupnost_smazat(
     return RedirectResponse(url="/admin/nedostupnosti", status_code=status.HTTP_303_SEE_OTHER)
 
 
+# --- úkol 9b: samoobslužné podávání požadavků (obě role) ---
+# Typ POZADAVEK existoval v datech od začátku (zadávaný admin/CLI cestou
+# rovnou jako 'schvaleno') - tady dostává vlastní stránku a schvalovací
+# workflow, ať to nemusí chodit přes admina/CLI. Systém neřeší, KDO
+# požadavek podal (sdílený nahled/host účet nemá per-osobu identitu) -
+# jen PRO KOHO je určen (výběr zaměstnance ve formuláři).
+
+NAZEV_STAVU_POZADAVKU = {
+    "podano": "Čeká na schválení",
+    "schvaleno": "Schváleno",
+    "zamitnuto": "Zamítnuto",
+}
+
+
+@app.get("/pozadavky")
+def pozadavky_seznam(
+    request: Request,
+    uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    jmeno_podle_id = {z.id: z.jmeno for z in repo.vsichni_zamestnanci(conn)}
+    return sablony.TemplateResponse(
+        request,
+        "pozadavky.html",
+        {
+            "uzivatel": uzivatel,
+            "je_admin": uzivatel.role == "admin",
+            "pozadavky": repo.pozadavky_vsechny(conn),
+            "jmeno_podle_id": jmeno_podle_id,
+            "nazvy_stavu": NAZEV_STAVU_POZADAVKU,
+        },
+    )
+
+
+@app.get("/pozadavky/novy")
+def pozadavek_novy_formular(
+    request: Request,
+    uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    return sablony.TemplateResponse(
+        request,
+        "pozadavek_novy.html",
+        {
+            "uzivatel": uzivatel,
+            "chyba": None,
+            "zamestnanci": repo.aktivni_zamestnanci(conn, date.today()),
+        },
+    )
+
+
+@app.post("/pozadavky")
+def pozadavek_novy_odeslani(
+    request: Request,
+    zamestnanec_id: int = Form(...),
+    od: date = Form(...),
+    do: date = Form(...),
+    popis: str = Form(""),
+    uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    _zamestnanec_nebo_404(conn, zamestnanec_id)
+    try:
+        repo.pridat_pozadavek(conn, zamestnanec_id, od, do, popis.strip() or None)
+    except ValueError as e:
+        return sablony.TemplateResponse(
+            request,
+            "pozadavek_novy.html",
+            {
+                "uzivatel": uzivatel,
+                "chyba": str(e),
+                "zamestnanci": repo.aktivni_zamestnanci(conn, date.today()),
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return RedirectResponse(url="/pozadavky", status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _pozadavek_nebo_404(conn: sqlite3.Connection, pozadavek_id: int) -> Nedostupnost:
+    pozadavek = repo.nedostupnost_podle_id(conn, pozadavek_id)
+    if pozadavek is None or pozadavek.typ != "POZADAVEK":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Požadavek neexistuje")
+    return pozadavek
+
+
+@app.post("/pozadavky/{pozadavek_id}/schvalit")
+def pozadavek_schvalit(
+    pozadavek_id: int,
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    _pozadavek_nebo_404(conn, pozadavek_id)
+    repo.schvalit_pozadavek(conn, pozadavek_id)
+    return RedirectResponse(url="/pozadavky", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/pozadavky/{pozadavek_id}/zamitnout")
+def pozadavek_zamitnout(
+    pozadavek_id: int,
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    _pozadavek_nebo_404(conn, pozadavek_id)
+    repo.zamitnout_pozadavek(conn, pozadavek_id)
+    return RedirectResponse(url="/pozadavky", status_code=status.HTTP_303_SEE_OTHER)
+
+
 # --- úkol 5: admin - parametry pravidel (profily normalni/krizovy) ---
 # + úkol 9c (na přání, upřesněno): "optimalizovany" - stejná tvrdá
 # pravidla i výchozí váhy jako normalni, ale priorita je CO NEJMÉNĚ

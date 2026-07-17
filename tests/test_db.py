@@ -1017,6 +1017,85 @@ def test_nastavit_nedostupnost_jednoho_dne_odmitne_vicedenni(conn):
     assert ned.od == date(2026, 8, 3)
 
 
+# --- úkol 9b: samoobslužné požadavky ---
+
+def test_pridat_pozadavek_ma_stav_podano(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    poz_id = repo.pridat_pozadavek(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "volno na svatbu")
+
+    poz = repo.nedostupnost_podle_id(conn, poz_id)
+    assert poz.typ == "POZADAVEK"
+    assert poz.stav == "podano"
+    assert poz.poznamka == "volno na svatbu"
+
+
+def test_pridat_nedostupnost_bez_stavu_ma_default_schvaleno(conn):
+    # admin/CLI/import cesta (přímé pridat_nedostupnost) - beze změny
+    # chování, i staré řádky bez explicitního stavu vyjdou 'schvaleno'.
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    ned_id = repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "DOV")
+    assert repo.nedostupnost_podle_id(conn, ned_id).stav == "schvaleno"
+
+
+def test_pridat_pozadavek_neaktivniho_zamestnance_vyhodi_value_error(conn):
+    id_ = repo.pridat_zamestnance(conn, "Andrea", date(2020, 1, 1))
+    repo.deaktivovat_zamestnance(conn, id_, date(2026, 7, 1))
+    with pytest.raises(ValueError, match="aktivní"):
+        repo.pridat_pozadavek(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "cokoliv")
+
+
+def test_schvalit_pozadavek(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    poz_id = repo.pridat_pozadavek(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "popis")
+
+    repo.schvalit_pozadavek(conn, poz_id)
+    assert repo.nedostupnost_podle_id(conn, poz_id).stav == "schvaleno"
+
+
+def test_zamitnout_pozadavek(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    poz_id = repo.pridat_pozadavek(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "popis")
+
+    repo.zamitnout_pozadavek(conn, poz_id)
+    assert repo.nedostupnost_podle_id(conn, poz_id).stav == "zamitnuto"
+
+
+def test_pozadavky_vsechny_vraci_jen_typ_pozadavek(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 1), date(2026, 8, 2), "DOV")
+    poz_id = repo.pridat_pozadavek(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "popis")
+
+    pozadavky = repo.pozadavky_vsechny(conn)
+    assert [p.id for p in pozadavky] == [poz_id]
+
+
+def test_config_pro_mesic_ignoruje_podany_pozadavek(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_pozadavek(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "popis")
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert "Alena" not in config.nedostupnosti
+
+
+def test_config_pro_mesic_ignoruje_zamitnuty_pozadavek(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    poz_id = repo.pridat_pozadavek(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "popis")
+    repo.zamitnout_pozadavek(conn, poz_id)
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert "Alena" not in config.nedostupnosti
+
+
+def test_config_pro_mesic_bere_schvaleny_pozadavek(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    poz_id = repo.pridat_pozadavek(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "popis")
+    repo.schvalit_pozadavek(conn, poz_id)
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert 3 in config.nedostupnosti["Alena"]
+    assert 4 in config.nedostupnosti["Alena"]
+
+
 def test_most_na_solver_end_to_end(conn):
     # stejná sestava 12 lidí jako v config.yaml, bez nedostupností -
     # ověřuje, že se DB stav dá reálně poslat do generate_schedule()

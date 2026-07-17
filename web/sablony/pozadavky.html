@@ -1,0 +1,52 @@
+{% extends "_layout.html" %}
+{% block titulek %}Požadavky – Rozpis služeb{% endblock %}
+{% block obsah %}
+{% include "_hlavicka.html" %}
+<main>
+  <div class="mesic-nav">
+    <h1>Požadavky</h1>
+    <a href="/pozadavky/novy">+ nový požadavek</a>
+  </div>
+
+  <label class="prepinac-skryt-vyrizene">
+    <input type="checkbox" id="skryt-vyrizene">
+    Skrýt vyřízené
+  </label>
+
+  <table class="seznam" id="tabulka-pozadavku">
+    <thead>
+      <tr>
+        <th>Zaměstnanec</th>
+        <th>Od</th>
+        <th>Do</th>
+        <th>Popis</th>
+        <th>Stav</th>
+        {% if je_admin %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in pozadavky %}
+      <tr class="{% if p.stav != 'podano' %}vyrizeno{% endif %}">
+        <td>{{ jmeno_podle_id.get(p.zamestnanec_id, '?') }}</td>
+        <td>{{ p.od }}</td>
+        <td>{{ p.do }}</td>
+        <td>{{ p.poznamka or '' }}</td>
+        <td><span class="stav-pozadavku stav-{{ p.stav }}">{{ nazvy_stavu.get(p.stav, p.stav) }}</span></td>
+        {% if je_admin %}
+        <td>
+          {% if p.stav == 'podano' %}
+          <form method="post" action="/pozadavky/{{ p.id }}/schvalit">
+            <button type="submit">schválit</button>
+          </form>
+          <form method="post" action="/pozadavky/{{ p.id }}/zamitnout">
+            <button type="submit">zamítnout</button>
+          </form>
+          {% endif %}
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</main>
+{% endblock %}

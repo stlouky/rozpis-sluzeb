@@ -40,7 +40,14 @@ CREATE TABLE IF NOT EXISTS nedostupnost (
     poznamka TEXT,
     -- NULL = celý den nedostupný. 'D'/'N' = jen tenhle typ směny je
     -- zakázaný, zbylý typ zůstává k dispozici (viz solver.zakazane_smeny).
-    zakazana_smena TEXT CHECK (zakazana_smena IN ('D', 'N'))
+    zakazana_smena TEXT CHECK (zakazana_smena IN ('D', 'N')),
+    -- Schvalovací workflow (úkol 9b) - relevantní jen pro typ POZADAVEK,
+    -- ostatní typy se zapisují admin/CLI cestou rovnou jako 'schvaleno' a
+    -- stav se u nich dál neřeší. 'podano' se do solveru nepromítne (viz
+    -- db/bridge.py:config_pro_mesic), dokud ho admin neschválí.
+    -- Výchozí 'schvaleno' zachovává beze změny všechno, co se dnes zapisuje
+    -- přímo (import-txt, admin formulář, klikací cyklus buňky).
+    stav TEXT NOT NULL DEFAULT 'schvaleno' CHECK (stav IN ('podano', 'schvaleno', 'zamitnuto'))
 );
 
 -- Zatím jen tabulka bez repository API - plnit se bude ve fázi 3-4

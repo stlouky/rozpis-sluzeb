@@ -85,6 +85,7 @@ def _nedostupnost_z_radku(radek: sqlite3.Row) -> Nedostupnost:
         typ=radek["typ"],
         poznamka=radek["poznamka"],
         zakazana_smena=radek["zakazana_smena"],
+        stav=radek["stav"],
     )
 
 
@@ -283,17 +284,60 @@ def pridat_nedostupnost(
     typ: str,
     poznamka: str | None = None,
     zakazana_smena: str | None = None,
+    stav: str = "schvaleno",
 ) -> int:
     _validovat_rozsah(od, do)
     kurzor = conn.execute(
         """
-        INSERT INTO nedostupnost (zamestnanec_id, od, do, typ, poznamka, zakazana_smena)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO nedostupnost (zamestnanec_id, od, do, typ, poznamka, zakazana_smena, stav)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (zamestnanec_id, od.isoformat(), do.isoformat(), typ, poznamka, zakazana_smena),
+        (zamestnanec_id, od.isoformat(), do.isoformat(), typ, poznamka, zakazana_smena, stav),
     )
     conn.commit()
     return kurzor.lastrowid
+
+
+def pridat_pozadavek(
+    conn: sqlite3.Connection,
+    zamestnanec_id: int,
+    od: date,
+    do: date,
+    popis: str,
+    zakazana_smena: str | None = None,
+) -> int:
+    """Samoobslužné podání požadavku (úkol 9b) - wrapper nad
+    pridat_nedostupnost s typ='POZADAVEK', stav='podano'. Do solveru se
+    nepromítne, dokud ho admin neschválí (viz db/bridge.py:config_pro_mesic).
+    Odmítne zaměstnance, který k datu 'od' není aktivní - sdílený
+    nahled/host účet nemá per-osobu identitu, takže tohle je jediná
+    kontrola, že požadavek dává smysl (viz zadani-faze3-web.md)."""
+    aktivni_ids = {z.id for z in aktivni_zamestnanci_v_obdobi(conn, od, od)}
+    if zamestnanec_id not in aktivni_ids:
+        raise ValueError("Zaměstnanec k tomuto datu není aktivní.")
+    return pridat_nedostupnost(
+        conn, zamestnanec_id, od, do, "POZADAVEK", popis, zakazana_smena, stav="podano"
+    )
+
+
+def schvalit_pozadavek(conn: sqlite3.Connection, pozadavek_id: int) -> None:
+    conn.execute("UPDATE nedostupnost SET stav = 'schvaleno' WHERE id = ?", (pozadavek_id,))
+    conn.commit()
+
+
+def zamitnout_pozadavek(conn: sqlite3.Connection, pozadavek_id: int) -> None:
+    conn.execute("UPDATE nedostupnost SET stav = 'zamitnuto' WHERE id = ?", (pozadavek_id,))
+    conn.commit()
+
+
+def pozadavky_vsechny(conn: sqlite3.Connection) -> list[Nedostupnost]:
+    """Všechny požadavky (typ POZADAVEK) bez ohledu na stav - pro stránku
+    /pozadavky (úkol 9b), na rozdíl od vsechny_nedostupnosti výš, která
+    vrací úplně všechny typy. Nejnovější první."""
+    radky = conn.execute(
+        "SELECT * FROM nedostupnost WHERE typ = 'POZADAVEK' ORDER BY od DESC, id DESC"
+    ).fetchall()
+    return [_nedostupnost_z_radku(r) for r in radky]
 
 
 def zrusit_nedostupnost(conn: sqlite3.Connection, nedostupnost_id: int) -> None:
