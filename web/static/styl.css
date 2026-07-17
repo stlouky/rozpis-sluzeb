@@ -373,6 +373,18 @@ table.mrizka tfoot .radek-obsazeni td.porusena {
   margin-top: 0.25rem;
 }
 
+.rucni-uprava-prepinac {
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+
+/* Tlačítko cyklu je disabled, dokud není "Povolit ruční úpravu"
+   zatržené (viz mrizka.html JS) - vizuálně odlišit od aktivního stavu,
+   ať je jasné, že klik teď nic neudělá. */
+.bunka-tlacitko:disabled {
+  cursor: default;
+}
+
 .legenda {
   margin-top: 1rem;
   font-size: 0.85rem;

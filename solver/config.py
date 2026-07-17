@@ -78,6 +78,14 @@ class Config:
     # Osobní strop směn v řadě (typicky zdravotní důvod) - přebije
     # pravidla.max_v_rade jen pro tohohle člověka (zamestnanec.max_za_sebou).
     max_v_rade_override: dict[str, int] = field(default_factory=dict)
+    # Pevně dané směny (úkol 9: zamčené směny jako fixní vstup solveru,
+    # ne jen "nepřepisovat v DB" jako dřív) - jmeno -> {den -> 'D'/'N'}.
+    # Solver je vezme jako HOTOVÝ fakt (model.Add(... == 1)), ne jako
+    # preferenci - díky tomu z nich automaticky těží i ostatní pravidla
+    # (N->D zákaz, max v řadě, fond), stejně jako by šlo o čerstvě
+    # navržený výsledek. Naplňuje jen db.bridge.config_pro_mesic ze
+    # zamčených řádků tabulky smena - config.yaml/CLI ho nezadává.
+    pevne_smeny: dict[str, dict[int, str]] = field(default_factory=dict)
 
     @property
     def pocet_dni(self) -> int:
@@ -132,6 +140,19 @@ class Config:
             if strop < 1:
                 raise ConfigError(f"Osobní strop směn v řadě {jmeno}: musí být alespoň 1.")
 
+        for jmeno, dny in self.pevne_smeny.items():
+            if jmeno not in znama_jmena:
+                raise ConfigError(f"Pevná směna odkazuje na neznámého zaměstnance: {jmeno}")
+            for den, typ in dny.items():
+                if not (1 <= den <= self.pocet_dni):
+                    raise ConfigError(
+                        f"Pevná směna {jmeno}: den {den} je mimo měsíc (1-{self.pocet_dni})."
+                    )
+                if typ not in ("D", "N"):
+                    raise ConfigError(
+                        f"Pevná směna {jmeno}, den {den}: neplatný typ „{typ}“ (jen D/N)."
+                    )
+
         for a, b in self.nekompatibilni_dvojice:
             for jmeno in (a, b):
                 if jmeno not in znama_jmena:
@@ -183,6 +204,10 @@ def _nacti_int_override(data: dict) -> dict[str, int]:
     return dict(data or {})
 
 
+def _nacti_pevne_smeny(data: dict) -> dict[str, dict[int, str]]:
+    return {jmeno: dict(dny) for jmeno, dny in (data or {}).items()}
+
+
 def _nacti_dvojice(data: list[list[str]]) -> tuple[tuple[str, str], ...]:
     dvojice = []
     for dvojice_raw in data or []:
@@ -214,6 +239,7 @@ def config_from_dict(data: dict) -> Config:
                 data.get("max_smen_mesic_override")
             ),
             max_v_rade_override=_nacti_int_override(data.get("max_v_rade_override")),
+            pevne_smeny=_nacti_pevne_smeny(data.get("pevne_smeny")),
         )
     except KeyError as chybi:
         raise ConfigError(f"V konfiguraci chybí povinný klíč: {chybi}") from chybi

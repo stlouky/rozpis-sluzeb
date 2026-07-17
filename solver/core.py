@@ -99,6 +99,14 @@ def generate_schedule(
         for d in dny:
             model.AddAtMostOne(smena[z, d, D], smena[z, d, N])
 
+    # Pevně dané směny (úkol 9: zamčené směny jako fixní vstup, ne jen
+    # "nepřepisovat v DB") - vynuceny HNED na začátku, ať z nich ostatní
+    # pravidla níž (N->D zákaz, max v řadě, fond) automaticky těží stejně,
+    # jako by šlo o čerstvě navržený výsledek, ne dodatečnou výjimku.
+    for z, dny_smeny in config.pevne_smeny.items():
+        for den, typ in dny_smeny.items():
+            model.Add(smena[z, den - 1, typ] == 1)
+
     # Obsazení směn
     for d in dny:
         model.Add(sum(smena[z, d, D] for z in lide) >= o.denni_min)

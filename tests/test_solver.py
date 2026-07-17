@@ -281,6 +281,41 @@ def test_config_odmitne_neplatny_typ_zakazane_smeny():
         zakladni_config(zakazane_smeny={"Alena": {1: ["X"]}})
 
 
+# --- pevne_smeny (úkol 9: zamčené směny jako fixní vstup solveru) ---
+
+def test_pevna_smena_se_v_rozpisu_zachova():
+    config = zakladni_config(pevne_smeny={"Alena": {5: "N"}})
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    assert schedule.smena_zamestnance("Alena", 5) == "N"
+
+
+def test_pevna_smena_vynuti_zakaz_denni_po_nocni():
+    # Alena má 5. pevně N - i bez zvláštního zákazu musí zůstat 6. volno
+    # nebo N (nikdy D), stejné pravidlo jako pro čerstvě navržený výsledek.
+    config = zakladni_config(pevne_smeny={"Alena": {5: "N"}})
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    assert schedule.smena_zamestnance("Alena", 6) != "D"
+
+
+def test_pevna_smena_se_pocita_do_fondu():
+    # se stropem 1 a jednou pevnou směnou už nesmí solver přidat žádnou další
+    config = zakladni_config(
+        pevne_smeny={"Alena": {5: "D"}}, max_smen_mesic_override={"Alena": 1}
+    )
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT)
+    assert schedule.souhrn_zamestnance("Alena")["smeny"] == 1
+
+
+def test_config_odmitne_neznameho_zamestnance_v_pevnych_smenach():
+    with pytest.raises(ConfigError):
+        zakladni_config(pevne_smeny={"Neexistujici": {1: "D"}})
+
+
+def test_config_odmitne_neplatny_typ_pevne_smeny():
+    with pytest.raises(ConfigError):
+        zakladni_config(pevne_smeny={"Alena": {1: "X"}})
+
+
 def test_individualni_strop_omezi_jen_dane_osoby(zakladni_schedule):
     # Alena má snížený strop (brigádnice) - ostatní zůstávají na společném
     # max_smen_mesic=15 z config.yaml, jen ona nesmí přes 5

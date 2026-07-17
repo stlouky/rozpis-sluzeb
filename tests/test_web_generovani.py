@@ -1,4 +1,4 @@
-"""Testy admin routy pro generování rozpisu (úkol 6, viz zadani-faze3-web.md)."""
+"""Testy admin routy pro generování rozpisu (úkol 6+9, viz zadani-faze3-web.md)."""
 
 from datetime import date
 
@@ -67,17 +67,35 @@ def _conn(klient):
     return repo.pripojit(klient.app.state.cesta_db)
 
 
-def test_nahled_dostane_403(klient_nahled):
-    odpoved = klient_nahled.post(
-        "/rozpis/generovat", data={"mesic": "2026-08", "profil": "normalni"}
+def _generovat(klient, mesic="2026-08", profil="normalni"):
+    return klient.post("/rozpis/generovat", data={"mesic": mesic, "profil": profil})
+
+
+def _potvrdit(klient, mesic="2026-08", profil="normalni"):
+    return klient.post(
+        "/rozpis/generovat/potvrdit", data={"mesic": mesic, "profil": profil}
     )
+
+
+def test_nahled_dostane_403(klient_nahled):
+    odpoved = _generovat(klient_nahled)
     assert odpoved.status_code == 403
 
 
-def test_generovani_ulozi_rozpis_a_presmeruje_s_potvrzenim(klient):
-    odpoved = klient.post(
-        "/rozpis/generovat", data={"mesic": "2026-08", "profil": "normalni"}
-    )
+def test_generovani_poprve_ukaze_diff_a_neuklada(klient):
+    """Úkol 9: diff před uložením - první generování pro prázdný měsíc
+    má "bylo: volno" pro každou změnu a NIC se rovnou neuloží."""
+    odpoved = _generovat(klient)
+    assert odpoved.status_code == 200
+    assert "Náhled nového rozpisu" in odpoved.text
+    assert "Potvrdit a uložit" in odpoved.text
+
+    assert repo.smeny_v_mesici(_conn(klient), 2026, 8) == []
+
+
+def test_generovani_potvrzeni_ulozi_rozpis(klient):
+    _generovat(klient)
+    odpoved = _potvrdit(klient)
     assert odpoved.status_code == 200  # TestClient defaultně následuje redirect
     assert "Rozpis vygenerován" in odpoved.text
 
@@ -88,50 +106,52 @@ def test_generovani_ulozi_rozpis_a_presmeruje_s_potvrzenim(klient):
 def test_generovani_je_deterministicke(klient):
     """Pevný seed (viz web/app.py:GENEROVANI_SEED) vynucuje
     num_search_workers=1 a zároveň dělá výsledek reprodukovatelný -
-    dva běhy nad stejnými daty musí dát stejný rozpis."""
-    klient.post("/rozpis/generovat", data={"mesic": "2026-08", "profil": "normalni"})
+    dva nezávislé běhy nad stejnými daty musí dát stejný rozpis."""
+    _generovat(klient)
+    _potvrdit(klient)
     prvni = {
         (s.zamestnanec_id, s.datum, s.typ) for s in repo.smeny_v_mesici(_conn(klient), 2026, 8)
     }
 
-    klient.post("/rozpis/generovat", data={"mesic": "2026-08", "profil": "normalni"})
+    # druhé kolo nad stejnými (teď uloženými) daty - beze změny, diff
+    # prázdný, rovnou se "uloží" (no-op) a přesměruje
+    odpoved = _generovat(klient)
+    assert odpoved.status_code == 200
+    assert "beze změny" in odpoved.text
+
     druhy = {
         (s.zamestnanec_id, s.datum, s.typ) for s in repo.smeny_v_mesici(_conn(klient), 2026, 8)
     }
-
     assert prvni == druhy
 
 
-def test_generovani_preskoci_zamcenou_smenu_a_zobrazi_pocet(klient):
+def test_zamcena_smena_se_nezmeni_pri_pregenerovani(klient):
+    """Úkol 9 zadaný test: "locked se nezmění". Od úkolu 9 dál solver
+    zamčené směny zná (Config.pevne_smeny, viz db/bridge.py) a je nutí
+    vygenerovat přesně stejnou hodnotu - konflikt (PreskocenaSmena z
+    úkolu 2/6) se tak přes tenhle tok už nemůže stát, ale samotná
+    neměnnost zamčené hodnoty musí platit dál."""
     conn = _conn(klient)
-    klient.post("/rozpis/generovat", data={"mesic": "2026-08", "profil": "normalni"})
+    _generovat(klient)
+    _potvrdit(klient)
 
     smena = repo.smeny_v_mesici(conn, 2026, 8)[0]
-    opacny_typ = "N" if smena.typ == "D" else "D"
-    # Zamkne a natvrdo přepíše na opačný typ, než co deterministicky
-    # vyjde znovu (viz test_generovani_je_deterministicke) - garantovaná
-    # kolize při přegenerování.
+    puvodni_typ = smena.typ
     repo.zamknout_smeny(conn, [smena.id])
-    conn.execute("UPDATE smena SET typ = ? WHERE id = ?", (opacny_typ, smena.id))
-    conn.commit()
 
-    odpoved = klient.post(
-        "/rozpis/generovat", data={"mesic": "2026-08", "profil": "normalni"}
-    )
+    _generovat(klient)
+    odpoved = _potvrdit(klient)
     assert odpoved.status_code == 200
-    assert "1 směna přeskočena" in odpoved.text
 
     zamcena_po = next(
         s for s in repo.smeny_v_mesici(_conn(klient), 2026, 8) if s.id == smena.id
     )
-    assert zamcena_po.typ == opacny_typ  # zamčená hodnota vyhrála
+    assert zamcena_po.typ == puvodni_typ
     assert zamcena_po.locked is True
 
 
 def test_generovani_nesplnitelne_zobrazi_diagnostiku_ne_500(klient_nesplnitelne):
-    odpoved = klient_nesplnitelne.post(
-        "/rozpis/generovat", data={"mesic": "2026-08", "profil": "normalni"}
-    )
+    odpoved = _generovat(klient_nesplnitelne)
     assert odpoved.status_code == 200
     assert "nelze sestavit" in odpoved.text
     assert "Zkusit krizový profil" in odpoved.text
@@ -139,16 +159,19 @@ def test_generovani_nesplnitelne_zobrazi_diagnostiku_ne_500(klient_nesplnitelne)
 
 
 def test_generovani_krizovy_profil_nenabizi_dalsi_zkuseni(klient_nesplnitelne):
-    odpoved = klient_nesplnitelne.post(
-        "/rozpis/generovat", data={"mesic": "2026-08", "profil": "krizovy"}
-    )
+    odpoved = _generovat(klient_nesplnitelne, profil="krizovy")
     assert odpoved.status_code == 200
     assert "nelze sestavit" in odpoved.text
     assert "Zkusit krizový profil" not in odpoved.text
 
 
+def test_generovani_nesplnitelne_bez_zamcenych_nenabizi_odemknuti(klient_nesplnitelne):
+    odpoved = _generovat(klient_nesplnitelne)
+    assert "Odemknout budoucí zamčené směny" not in odpoved.text
+
+
 def test_rozpis_zobrazi_potvrzeni_z_query_parametru(klient):
-    """GET /rozpis?vygenerovano=1&... (kam POST /rozpis/generovat
+    """GET /rozpis?vygenerovano=1&... (kam POST /rozpis/generovat/potvrdit
     přesměruje po úspěchu) musí banner ukázat i samostatně."""
     odpoved = klient.get(
         "/rozpis",

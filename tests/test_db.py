@@ -377,6 +377,46 @@ def test_zakazana_smena_z_db_ovlivni_vygenerovany_rozpis(conn):
     assert schedule.smena_zamestnance("Alena", 21) != "D"
 
 
+def test_zamcena_smena_se_projevi_jako_pevna_v_configu(conn):
+    """Úkol 9: config_pro_mesic bere zamčené směny jako pevný vstup
+    solveru (Config.pevne_smeny), ne jen "nepřepisovat v DB"."""
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 5): "N"},
+                         status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, schedule)
+    smena_id = repo.smeny_v_mesici(conn, 2026, 8)[0].id
+    repo.zamknout_smeny(conn, [smena_id])
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert config.pevne_smeny == {"Alena": {5: "N"}}
+
+
+def test_nezamcena_smena_neni_v_pevnych_smenach(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 5): "N"},
+                         status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, schedule)
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert config.pevne_smeny == {}
+
+
+def test_zamcena_smena_z_db_ovlivni_vygenerovany_rozpis(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    schedule = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 5): "N"},
+                         status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, schedule)
+    smena_id = repo.smeny_v_mesici(conn, 2026, 8)[0].id
+    repo.zamknout_smeny(conn, [smena_id])
+
+    config = config_pro_mesic(conn, 2026, 8)
+    novy_rozpis = generate_schedule(config, time_limit_s=10.0)
+    assert novy_rozpis.smena_zamestnance("Alena", 5) == "N"
+    assert novy_rozpis.smena_zamestnance("Alena", 6) != "D"  # N -> D zakázáno
+
+
 def test_dvojice_se_prevedou_na_jmena_v_configu(conn):
     id_a = repo.pridat_zamestnance(conn, "Cyril", date(2020, 1, 1))
     id_b = repo.pridat_zamestnance(conn, "Karel", date(2020, 1, 1))
@@ -741,6 +781,83 @@ def test_smeny_v_mesici_neobsahuje_jiny_mesic(conn):
     assert len(repo.smeny_v_mesici(conn, 2026, 9)) == 1
 
 
+# --- zamknout_do_dne / zamknout_minulost (úkol 9) - dnešek je 2026-07-17 v testovacím prostředí ---
+
+def test_zamknout_do_dne_zamkne_jen_do_daneho_dne(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena",),
+        smeny={("Alena", 10): "D", ("Alena", 15): "N", ("Alena", 20): "D"},
+        status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+
+    pocet = repo.zamknout_do_dne(conn, 2026, 8, 15)
+    assert pocet == 2
+
+    smeny = {s.datum.day: s.locked for s in repo.smeny_v_mesici(conn, 2026, 8)}
+    assert smeny[10] is True
+    assert smeny[15] is True
+    assert smeny[20] is False
+
+
+def test_zamknout_do_dne_s_nulou_je_no_op(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "D"},
+                         status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, schedule)
+
+    assert repo.zamknout_do_dne(conn, 2026, 8, 0) == 0
+    assert repo.smeny_v_mesici(conn, 2026, 8)[0].locked is False
+
+def test_zamknout_minulost_zamkne_cely_minuly_mesic(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(rok=2026, mesic=6, jmena=("Alena",), smeny={("Alena", 5): "D"},
+                         status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, schedule)
+
+    pocet = repo.zamknout_minulost(conn, 2026, 6)
+    assert pocet == 1
+    assert repo.smeny_v_mesici(conn, 2026, 6)[0].locked is True
+
+
+def test_zamknout_minulost_nezamkne_budouci_mesic(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(rok=2026, mesic=12, jmena=("Alena",), smeny={("Alena", 5): "D"},
+                         status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, schedule)
+
+    pocet = repo.zamknout_minulost(conn, 2026, 12)
+    assert pocet == 0
+    assert repo.smeny_v_mesici(conn, 2026, 12)[0].locked is False
+
+
+def test_zamknout_minulost_v_aktualnim_mesici_jen_do_dneska(conn):
+    # dnešek je 2026-07-17 (viz nadpis sekce) - 10. je minulost, 25. budoucnost
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(
+        rok=2026, mesic=7, jmena=("Alena",),
+        smeny={("Alena", 10): "D", ("Alena", 25): "N"},
+        status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+
+    repo.zamknout_minulost(conn, 2026, 7)
+    smeny = {s.datum.day: s.locked for s in repo.smeny_v_mesici(conn, 2026, 7)}
+    assert smeny[10] is True
+    assert smeny[25] is False
+
+
+def test_zamknout_minulost_je_idempotentni(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(rok=2026, mesic=6, jmena=("Alena",), smeny={("Alena", 5): "D"},
+                         status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, schedule)
+
+    repo.zamknout_minulost(conn, 2026, 6)
+    assert repo.zamknout_minulost(conn, 2026, 6) == 0  # už zamčeno, nic nového
+
+
 def test_zrusit_nedostupnost(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     ned_id = repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 9), "DOV")
@@ -849,6 +966,55 @@ def test_prekryvajici_nedostupnosti_vynecha_sebe_pri_editaci(conn):
         conn, id_, date(2026, 8, 3), date(2026, 8, 9), vynechat_id=ned_id
     )
     assert prekryv == []
+
+
+# --- nedostupnost_pro_den / nastavit_nedostupnost_jednoho_dne (úkol 9) ---
+
+def test_nedostupnost_pro_den_najde_pokryvajici_zaznam(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+
+    ned = repo.nedostupnost_pro_den(conn, id_, date(2026, 8, 5))
+    assert ned.typ == "DOV"
+    assert repo.nedostupnost_pro_den(conn, id_, date(2026, 8, 10)) is None
+
+
+def test_nastavit_nedostupnost_jednoho_dne_zalozi(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.nastavit_nedostupnost_jednoho_dne(conn, id_, date(2026, 8, 5), "NEM")
+
+    ned = repo.nedostupnost_pro_den(conn, id_, date(2026, 8, 5))
+    assert ned.typ == "NEM"
+    assert ned.od == ned.do == date(2026, 8, 5)
+
+
+def test_nastavit_nedostupnost_jednoho_dne_prepise(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.nastavit_nedostupnost_jednoho_dne(conn, id_, date(2026, 8, 5), "NEM")
+    repo.nastavit_nedostupnost_jednoho_dne(conn, id_, date(2026, 8, 5), "DOV")
+
+    assert repo.nedostupnost_pro_den(conn, id_, date(2026, 8, 5)).typ == "DOV"
+
+
+def test_nastavit_nedostupnost_jednoho_dne_s_none_smaze(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.nastavit_nedostupnost_jednoho_dne(conn, id_, date(2026, 8, 5), "NEM")
+    repo.nastavit_nedostupnost_jednoho_dne(conn, id_, date(2026, 8, 5), None)
+
+    assert repo.nedostupnost_pro_den(conn, id_, date(2026, 8, 5)) is None
+
+
+def test_nastavit_nedostupnost_jednoho_dne_odmitne_vicedenni(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+
+    with pytest.raises(ValueError, match="vícedenní"):
+        repo.nastavit_nedostupnost_jednoho_dne(conn, id_, date(2026, 8, 5), "NEM")
+
+    # nesmí být poškozená
+    ned = repo.nedostupnost_pro_den(conn, id_, date(2026, 8, 5))
+    assert ned.typ == "DOV"
+    assert ned.od == date(2026, 8, 3)
 
 
 def test_most_na_solver_end_to_end(conn):

@@ -29,6 +29,11 @@ _ZKRATKA_NEDOSTUPNOSTI = {"OST": "ost", "SVZ": "svz", "POZADAVEK": "poz"}
 # Typy nedostupnosti bez textu v buňce - jen barva (viz Bunka.text).
 _BEZ_TEXTU_V_BUNCE = {"DOV", "NEM"}
 
+# Typy, které klikací cyklus buňky umí nastavit (úkol 9) - zbylé typy
+# (SVZ, POZADAVEK) i vícedenní záznamy libovolného typu se zadávají jen
+# přes /admin/nedostupnosti, ne klikem v mřížce (viz sestavit_mrizku).
+TYPY_NEDOSTUPNOSTI_V_CYKLU = ("DOV", "OST", "NEM")
+
 # Plný název pro title/tooltip buňky (viz web/sablony/mrizka.html) - i
 # nahled ho smí vidět, jde jen o rozepsání zkratky/barvy, ne o poznámku.
 # Veřejné (bez podtržítka) - sdílené i s formulářem nedostupností
@@ -48,6 +53,11 @@ class Bunka:
     nedostupnost: str | None  # 'DOV' | 'NEM' | 'OST' | 'POZADAVEK' | None
     poznamka: str | None  # jen pro admina (viz sestavit_mrizku), jinak vždy None
     zamcena: bool = False  # úkol 8 - jen nezamčené buňky smí admin klikem upravit
+    # Zda cyklus D/N/volno/DOV/OST/NEM (úkol 9) smí na tuhle buňku sáhnout -
+    # False i pro nezamčenou buňku, když je den součástí VÍCEdenní
+    # nedostupnosti nebo typu mimo D/N/DOV/OST/NEM (viz sestavit_mrizku) -
+    # klik by takový záznam mohl nechtěně zkrátit/smazat.
+    editovatelna: bool = False
     # Text porušení tvrdého pravidla (nebo více spojených), None = bez
     # porušení - viz solver/validace.py. Zobrazuje se i nahled roli (jde
     # jen o to, že rozpis neodpovídá pravidlům, ne o poznámku).
@@ -174,9 +184,23 @@ def sestavit_mrizku(conn: sqlite3.Connection, rok: int, mesic: int, je_admin: bo
 
     prvni_den = date(rok, mesic, 1)
     posledni_den = date(rok, mesic, schedule.pocet_dni)
-    zamestnanec_id_podle_jmena = {
-        z.jmeno: z.id for z in repo.aktivni_zamestnanci_v_obdobi(conn, prvni_den, posledni_den)
-    }
+    aktivni = repo.aktivni_zamestnanci_v_obdobi(conn, prvni_den, posledni_den)
+    zamestnanec_id_podle_jmena = {z.jmeno: z.id for z in aktivni}
+    jmeno_podle_id = {z.id: z.jmeno for z in aktivni}
+
+    # Dny, kam klikací cyklus (úkol 9) NESMÍ sáhnout, i když nejsou
+    # zamčené - VÍCEdenní nedostupnost nebo typ mimo TYPY_NEDOSTUPNOSTI_V_CYKLU
+    # (SVZ/POZADAVEK) se zadává jen přes /admin/nedostupnosti, ať klik
+    # omylem nezkrátí/nesmaže záznam, co se táhne přes víc dní.
+    needitovatelne_nedostupnosti: set[tuple[str, int]] = set()
+    for n in repo.nedostupnosti_v_obdobi(conn, prvni_den, posledni_den):
+        jmeno = jmeno_podle_id.get(n.zamestnanec_id)
+        if jmeno is None:
+            continue
+        if n.od == n.do and n.typ in TYPY_NEDOSTUPNOSTI_V_CYKLU:
+            continue  # jednodenní a editovatelného typu - buňka zůstává klikatelná
+        for den in dny_v_mesici(n.od, n.do, prvni_den, posledni_den):
+            needitovatelne_nedostupnosti.add((jmeno, den))
 
     # Porušení tvrdých pravidel (úkol 8) - vždy dopočítané, ne jen po
     # ruční úpravě, ať se ukážou i staré/zamčené kolize z generování.
@@ -201,13 +225,15 @@ def sestavit_mrizku(conn: sqlite3.Connection, rok: int, mesic: int, je_admin: bo
             smena = schedule.smena_zamestnance(jmeno, den)
             nedostupnost = None if smena else schedule.duvod_nedostupnosti(jmeno, den)
             duvody = poruseni_bunky.get((jmeno, den))
+            zamcena = schedule.je_zamcena(jmeno, den)
             bunky.append(
                 Bunka(
                     smena=smena,
                     nedostupnost=nedostupnost,
                     poznamka=poznamky.get((jmeno, den)),
-                    zamcena=schedule.je_zamcena(jmeno, den),
+                    zamcena=zamcena,
                     duvod_poruseni="; ".join(duvody) if duvody else None,
+                    editovatelna=not zamcena and (jmeno, den) not in needitovatelne_nedostupnosti,
                 )
             )
         souhrn = schedule.souhrn_zamestnance(jmeno)

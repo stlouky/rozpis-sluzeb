@@ -265,6 +265,52 @@ def test_sestavit_mrizku_dny_s_porusenim_pod_minimem(conn):
     assert mrizka.dny_s_porusenim[0] is True  # jen 1 denní, min je 2
 
 
+# --- úkol 9: editovatelnost buňky (klikací cyklus D/N/volno/DOV/OST/NEM) ---
+
+def test_sestavit_mrizku_prazdna_bunka_je_editovatelna(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    assert mrizka.radky[0].bunky[0].editovatelna is True
+
+
+def test_sestavit_mrizku_zamcena_bunka_neni_editovatelna(conn):
+    _ulozit_zakladni_rozpis(conn)
+    smena_id = repo.smeny_v_mesici(conn, 2026, 8)[0].id
+    repo.zamknout_smeny(conn, [smena_id])
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    assert mrizka.radky[0].bunky[0].editovatelna is False
+
+
+def test_sestavit_mrizku_jednodenni_dov_je_editovatelna(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 5), date(2026, 8, 5), "DOV")
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    assert mrizka.radky[0].bunky[4].editovatelna is True  # 5.8. = index 4
+
+
+def test_sestavit_mrizku_vicedenni_dov_neni_editovatelna(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 5), date(2026, 8, 7), "DOV")
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    assert mrizka.radky[0].bunky[4].editovatelna is False  # 5.8.
+    assert mrizka.radky[0].bunky[5].editovatelna is False  # 6.8.
+    assert mrizka.radky[0].bunky[6].editovatelna is False  # 7.8.
+    assert mrizka.radky[0].bunky[7].editovatelna is True  # 8.8. - mimo rozsah
+
+
+def test_sestavit_mrizku_svz_neni_editovatelna(conn):
+    # SVZ (školení v zařízení) není v cyklu buňky - i jednodenní záznam
+    # se zadává jen přes /admin/nedostupnosti
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 5), date(2026, 8, 5), "SVZ")
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    assert mrizka.radky[0].bunky[4].editovatelna is False
+
+
 # --- HTTP vrstva: role a měsíc (viz zadani-faze3-web.md, úkol 3) ---
 
 @pytest.fixture

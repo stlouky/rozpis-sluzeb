@@ -19,7 +19,11 @@
     <div class="generovani">
       {% if vygenerovano %}
         <p class="uspech">
-          Rozpis vygenerován ({{ generovani_status }}, {{ generovani_cas }}&nbsp;s).
+          {% if beze_zmeny %}
+            Rozpis přepočítán ({{ generovani_status }}, {{ generovani_cas }}&nbsp;s) - beze změny oproti uloženému stavu.
+          {% else %}
+            Rozpis vygenerován ({{ generovani_status }}, {{ generovani_cas }}&nbsp;s).
+          {% endif %}
           {% if preskoceno == 1 %}
             1 směna přeskočena kvůli zamčené kolizi - zamčená hodnota zůstala zachována.
           {% elif preskoceno > 0 and preskoceno < 5 %}
@@ -43,6 +47,14 @@
               <button type="submit">Zkusit krizový profil</button>
             </form>
           {% endif %}
+          {% if ma_zamcene_smeny %}
+            <form method="post" action="/rozpis/generovat/odemknout-a-zkusit" class="forma-inline"
+                  onsubmit="return confirm('Odemknout všechny budoucí zamčené směny tento měsíc a zkusit to znovu?')">
+              <input type="hidden" name="mesic" value="{{ mrizka.rok }}-{{ '%02d'|format(mrizka.mesic) }}">
+              <input type="hidden" name="profil" value="{{ profil_generovani }}">
+              <button type="submit">Odemknout budoucí zamčené směny a zkusit znovu</button>
+            </form>
+          {% endif %}
         </div>
       {% endif %}
 
@@ -57,6 +69,13 @@
         <button type="submit" id="btn-generovat">Vygenerovat rozpis</button>
       </form>
     </div>
+
+    <p class="rucni-uprava-prepinac">
+      <label>
+        <input type="checkbox" id="chk-rucni-uprava">
+        Povolit ruční úpravu buněk
+      </label>
+    </p>
   {% endif %}
 
   <div class="mrizka-obal">
@@ -82,16 +101,15 @@
             </td>
             {% for bunka in radek.bunky -%}
               {% set den = mrizka.dny[loop.index0] %}
-              <td class="bunka{% if mrizka.vikendy[loop.index0] %} vikend{% endif %}{% if bunka.trida %} {{ bunka.trida }}{% endif %}{% if bunka.duvod_poruseni %} porusena{% endif %}{% if bunka.zamcena %} zamcena{% endif %}"{% if bunka.nadpis %} title="{{ bunka.nadpis }}"{% endif %}>
-                {% if je_admin and not bunka.zamcena and radek.zamestnanec_id %}
-                  <form method="post" action="/rozpis/bunka/{{ radek.zamestnanec_id }}/{{ '%04d-%02d-%02d'|format(mrizka.rok, mrizka.mesic, den) }}" class="bunka-formular">
-                    <input type="hidden" name="mesic" value="{{ '%04d-%02d'|format(mrizka.rok, mrizka.mesic) }}">
-                    <button type="submit" class="bunka-tlacitko">{{ bunka.text }}</button>
-                  </form>
-                {% else %}
-                  {{ bunka.text }}
-                {% endif %}
-              </td>
+              {% set datum = '%04d-%02d-%02d'|format(mrizka.rok, mrizka.mesic, den) %}
+              {% set hodnota_bunky = bunka.smena or bunka.nedostupnost or '' %}
+              <td class="bunka{% if mrizka.vikendy[loop.index0] %} vikend{% endif %}{% if bunka.trida %} {{ bunka.trida }}{% endif %}{% if bunka.duvod_poruseni %} porusena{% endif %}{% if bunka.zamcena %} zamcena{% endif %}"{% if bunka.nadpis %} title="{{ bunka.nadpis }}"{% endif %}>{%- if je_admin and radek.zamestnanec_id and bunka.editovatelna %}
+                <form method="post" action="/rozpis/bunka/{{ radek.zamestnanec_id }}/{{ datum }}" class="bunka-formular">
+                  <input type="hidden" name="mesic" value="{{ '%04d-%02d'|format(mrizka.rok, mrizka.mesic) }}">
+                  <input type="hidden" name="hodnota" value="{{ hodnota_bunky }}">
+                  <button type="button" class="bunka-tlacitko" data-hodnota="{{ hodnota_bunky }}" disabled>{{ bunka.text }}</button>
+                </form>
+              {%- else -%}{{ bunka.text }}{%- endif %}</td>
             {% endfor -%}
             <td class="souhrn">{{ radek.pocet_d }}</td>
             <td class="souhrn">{{ radek.pocet_n }}</td>
@@ -121,10 +139,13 @@
     <span class="stitek nedostupnost-jina">ost/poz</span> ostatní nedostupnost
     <span class="stitek vikend">víkend</span>
     <span class="stitek bunka porusena">D</span> porušuje tvrdé pravidlo
-    {% if je_admin %}<span class="stitek bunka zamcena">D</span> zamčeno - nejde upravit klikem{% endif %}
+    {% if je_admin %}<span class="stitek bunka zamcena">D</span> zamčeno - nejde upravit{% endif %}
   </p>
   {% if je_admin %}
-    <p class="napoveda-editace">Klik na nezamčenou buňku ji přepne volno &rarr; D &rarr; N &rarr; volno.</p>
+    <p class="napoveda-editace">
+      Po zatržení "Povolit ruční úpravu": klik na buňku cykluje volno &rarr; D &rarr; N &rarr; DOV &rarr; OST &rarr; NEM,
+      Enter potvrdí a rovnou přegeneruje a uloží zbytek měsíce od tohoto dne dál.
+    </p>
   {% endif %}
 </main>
 {% if je_admin %}
@@ -136,6 +157,40 @@
     var tlacitko = document.getElementById("btn-generovat");
     tlacitko.disabled = true;
     tlacitko.textContent = "Generuji…";
+  });
+
+  // Ruční úprava buňky (úkol 9) - JE VYŽADOVÁNO JS (na rozdíl od zbytku
+  // appky, kde JS jen vylepšuje): klik cykluje hodnotu jen v prohlížeči
+  // (bez odeslání na server), teprve Enter pošle zvolenou hodnotu a
+  // spustí přegenerování zbytku měsíce od tohoto dne. Bez JS zůstanou
+  // buňky needitovatelné - úprava jde poté jen přes CLI.
+  var HODNOTY_CYKLU = [{% for h in hodnoty_bunky %}"{{ h }}"{% if not loop.last %}, {% endif %}{% endfor %}];
+
+  document.querySelectorAll(".bunka-tlacitko").forEach(function (tlacitko) {
+    var form = tlacitko.closest("form");
+    var hodnotaPole = form.querySelector("input[name=hodnota]");
+    var index = HODNOTY_CYKLU.indexOf(tlacitko.dataset.hodnota);
+    if (index === -1) index = 2; // "" (volno) - záchranná pojistka
+
+    tlacitko.addEventListener("click", function () {
+      index = (index + 1) % HODNOTY_CYKLU.length;
+      var hodnota = HODNOTY_CYKLU[index];
+      tlacitko.textContent = hodnota;
+      hodnotaPole.value = hodnota;
+    });
+    tlacitko.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        form.submit();
+      }
+    });
+  });
+
+  var checkboxRucniUprava = document.getElementById("chk-rucni-uprava");
+  checkboxRucniUprava.addEventListener("change", function () {
+    document.querySelectorAll(".bunka-tlacitko").forEach(function (t) {
+      t.disabled = !checkboxRucniUprava.checked;
+    });
   });
 </script>
 {% endif %}

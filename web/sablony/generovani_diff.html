@@ -1,0 +1,41 @@
+{% extends "_layout.html" %}
+{% block titulek %}Náhled rozpisu {{ '%02d'|format(mesic) }}/{{ rok }} – Rozpis služeb{% endblock %}
+{% block obsah %}
+{% include "_hlavicka.html" %}
+<main>
+  <h1>Náhled nového rozpisu {{ '%02d'|format(mesic) }}/{{ rok }}</h1>
+  <p>
+    Řešení: {{ status_reseni }}, {{ '%.1f'|format(cas_reseni) }}&nbsp;s.
+    {{ diff|length }} změn{{ 'a' if diff|length == 1 else 'y' if diff|length < 5 else '' }}
+    oproti aktuálně uloženému stavu. Zamčené směny se nemění (nejsou v seznamu níž).
+  </p>
+
+  <table class="seznam">
+    <thead>
+      <tr>
+        <th>Zaměstnanec</th>
+        <th>Den</th>
+        <th>Bylo</th>
+        <th>Bude</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for radek in diff %}
+        <tr>
+          <td>{{ radek.jmeno }}</td>
+          <td>{{ radek.den }}. ({{ radek.den_tydne }})</td>
+          <td>{{ radek.bylo }}</td>
+          <td>{{ radek.bude }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <form method="post" action="/rozpis/generovat/potvrdit" class="forma-inline">
+    <input type="hidden" name="mesic" value="{{ '%04d-%02d'|format(rok, mesic) }}">
+    <input type="hidden" name="profil" value="{{ profil }}">
+    <button type="submit">Potvrdit a uložit</button>
+  </form>
+  <a href="/rozpis?mesic={{ '%04d-%02d'|format(rok, mesic) }}">Zahodit</a>
+</main>
+{% endblock %}

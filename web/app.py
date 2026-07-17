@@ -40,7 +40,8 @@ from .auth import (
     vytvorit_session,
 )
 from .db import overit_databazi, ziskat_pripojeni
-from .mrizka import NAZEV_NEDOSTUPNOSTI, sestavit_mrizku
+from .diff import sestavit_diff
+from .mrizka import NAZEV_NEDOSTUPNOSTI, TYPY_NEDOSTUPNOSTI_V_CYKLU, sestavit_mrizku
 from .prepis import sestavit_prepis
 
 ROOT = Path(__file__).resolve().parent
@@ -182,6 +183,9 @@ def _vykreslit_rozpis(
         "chyba_generovani": None,
         "profil_generovani": None,
         "profil_generovani_nazev": None,
+        "ma_zamcene_smeny": False,
+        "beze_zmeny": False,
+        "hodnoty_bunky": HODNOTY_BUNKY,
     }
     kontext.update(extra)
     return sablony.TemplateResponse(request, "mrizka.html", kontext)
@@ -195,6 +199,7 @@ def rozpis_mesice(
     generovani_status: str | None = None,
     generovani_cas: float | None = None,
     preskoceno: int = 0,
+    beze_zmeny: bool = False,
     uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni),
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
@@ -207,10 +212,11 @@ def rozpis_mesice(
         generovani_status=generovani_status,
         generovani_cas=generovani_cas,
         preskoceno=preskoceno,
+        beze_zmeny=beze_zmeny,
     )
 
 
-# --- úkol 6: admin - VYGENEROVAT ---
+# --- úkol 6+9: admin - VYGENEROVAT (+ zamykání, diff, přegenerování zbytku) ---
 
 GENEROVANI_TIME_LIMIT_S = 30.0
 # Pevný seed vynucuje num_search_workers=1 (viz solver/core.py) - server
@@ -219,6 +225,19 @@ GENEROVANI_TIME_LIMIT_S = 30.0
 GENEROVANI_SEED = 42
 
 PROFILY_NAZVY = {"normalni": "normální", "krizovy": "krizový"}
+
+
+def _vyresit(conn: sqlite3.Connection, rok: int, mes: int, profil: str):
+    """Sestaví config (zamčené směny jako pevný vstup, viz
+    db.bridge.config_pro_mesic) a zavolá solver. Nic neukládá - jen
+    vrátí Config a Schedule, ať to může sdílet POST /rozpis/generovat
+    (náhled diffu) i POST /rozpis/generovat/potvrdit (skutečné uložení,
+    znovu vyřeší se stejným seedem -> stejný výsledek, viz úkol 6)."""
+    config = config_pro_mesic(conn, rok, mes, profil=profil)
+    schedule = generate_schedule(
+        config, time_limit_s=GENEROVANI_TIME_LIMIT_S, random_seed=GENEROVANI_SEED
+    )
+    return config, schedule
 
 
 @app.post("/rozpis/generovat")
@@ -230,19 +249,79 @@ def rozpis_generovat(
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
     rok, mes = _rozlozit_mesic(mesic)
-    config = config_pro_mesic(conn, rok, mes, profil=profil)
+    # "Zamknout minulost a odpracované směny, přegenerovat jen zbytek
+    # měsíce" (CLAUDE.md klíčové workflow) - není samostatná akce, děje
+    # se to automaticky před každým (pře)generováním. Config pak zamčené
+    # (vč. právě zamčené minulosti) bere jako pevný vstup solveru (viz
+    # db.bridge.config_pro_mesic), takže "vygenerovat" a "přegenerovat
+    # zbytek" jsou ve skutečnosti stejná operace.
+    repo.zamknout_minulost(conn, rok, mes)
+
     try:
-        schedule = generate_schedule(
-            config, time_limit_s=GENEROVANI_TIME_LIMIT_S, random_seed=GENEROVANI_SEED
-        )
+        config, schedule = _vyresit(conn, rok, mes, profil)
     except NelzeSestavitError as e:
         # Nesplnitelnost se ukáže rovnou na mřížce (ne HTTP 500) - viz
         # solver.core._diagnostikuj_nesplnitelnost pro obsah e.duvody.
+        # ma_zamcene_smeny řídí, jestli má smysl nabídnout "odemknout
+        # budoucí zamčené směny a zkusit znovu" (úkol 9) - bez zamčené
+        # směny v měsíci by to tlačítko nemělo co dělat.
+        config_bez_reseni = config_pro_mesic(conn, rok, mes, profil=profil)
         return _vykreslit_rozpis(
             request, conn, uzivatel, rok, mes, je_admin=True,
             chyba_generovani=e.duvody,
             profil_generovani=profil,
             profil_generovani_nazev=PROFILY_NAZVY.get(profil, profil),
+            ma_zamcene_smeny=bool(config_bez_reseni.pevne_smeny),
+        )
+
+    puvodni = schedule_z_db(conn, rok, mes)
+    diff = sestavit_diff(puvodni, schedule)
+
+    if not diff:
+        # Nic se nezměnilo - uložit je formalita (zamčené i tak zůstávají
+        # netknuté), ale nemá smysl ptát se na potvrzení prázdného diffu.
+        preskocene = repo.ulozit_rozpis(conn, schedule)
+        url = (
+            f"/rozpis?mesic={rok}-{mes:02d}&vygenerovano=1"
+            f"&generovani_status={schedule.status}&generovani_cas={schedule.cas_reseni:.1f}"
+            f"&preskoceno={len(preskocene)}&beze_zmeny=1"
+        )
+        return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
+
+    return sablony.TemplateResponse(
+        request,
+        "generovani_diff.html",
+        {
+            "uzivatel": uzivatel,
+            "rok": rok,
+            "mesic": mes,
+            "profil": profil,
+            "diff": diff,
+            "status_reseni": schedule.status,
+            "cas_reseni": schedule.cas_reseni,
+        },
+    )
+
+
+@app.post("/rozpis/generovat/potvrdit")
+def rozpis_generovat_potvrdit(
+    mesic: str = Form(...),
+    profil: str = Form("normalni"),
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    """Skutečné uložení po náhledu diffu - znovu vyřeší (stejný config +
+    stejný pevný seed = stejný výsledek, viz _vyresit) a teprve teď
+    zavolá ulozit_rozpis. Mezi náhledem a potvrzením se stav DB
+    (v praxi) nemění - appka je jednouživatelská admin session - ale
+    kdyby se přesto stalo, že mezitím přibylo něco, co dělá zadání
+    nesplnitelným, radši tichý návrat na mřížku než 500."""
+    rok, mes = _rozlozit_mesic(mesic)
+    try:
+        _, schedule = _vyresit(conn, rok, mes, profil)
+    except NelzeSestavitError:
+        return RedirectResponse(
+            url=f"/rozpis?mesic={rok}-{mes:02d}", status_code=status.HTTP_303_SEE_OTHER
         )
 
     preskocene = repo.ulozit_rozpis(conn, schedule)
@@ -252,6 +331,29 @@ def rozpis_generovat(
         f"&preskoceno={len(preskocene)}"
     )
     return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/rozpis/generovat/odemknout-a-zkusit")
+def rozpis_generovat_odemknout_a_zkusit(
+    request: Request,
+    mesic: str = Form(...),
+    profil: str = Form("normalni"),
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    """"Odemknout konfliktní směny" (úkol 9 zadání) - přesně určit,
+    KTERÁ zamčená směna je za nesplnitelností, by vyžadovalo postupně
+    zkoušet kombinace (drahé, mimo rozsah úkolu). Pragmatická náhrada:
+    odemkne VŠECHNY budoucí (datum > dnes) zamčené směny v měsíci -
+    zamčená minulost (datum <= dnes) zůstává nedotčená - a zkusí to
+    znovu."""
+    rok, mes = _rozlozit_mesic(mesic)
+    dnes = date.today()
+    budouci_zamcene = [
+        s.id for s in repo.smeny_v_mesici(conn, rok, mes) if s.locked and s.datum > dnes
+    ]
+    repo.odemknout_smeny(conn, budouci_zamcene)
+    return rozpis_generovat(request, mesic, profil, uzivatel, conn)
 
 
 @app.get("/admin")
@@ -736,32 +838,87 @@ def rozpis_pdf(
     )
 
 
-# --- úkol 8: admin - ruční úprava buňky (klik = cyklus D/N/volno) ---
+# --- úkol 8+9: admin - ruční úprava buňky + přegenerování zbytku od úpravy ---
 
-CYKLUS_SMENY: dict[str | None, str | None] = {None: "D", "D": "N", "N": None}
+# Buňka cykluje mezi směnou (D/N), volnem a jednodenní nedostupností
+# (DOV/OST/NEM) - víc typů/vícedenní záznamy zůstávají jen na
+# /admin/nedostupnosti (viz web/mrizka.py:TYPY_NEDOSTUPNOSTI_V_CYKLU).
+HODNOTY_BUNKY = ("D", "N", "") + TYPY_NEDOSTUPNOSTI_V_CYKLU
+
+
+def _nastavit_hodnotu_bunky(
+    conn: sqlite3.Connection, zamestnanec_id: int, datum: date, hodnota: str
+) -> str | None:
+    """Nastaví ruční hodnotu buňky - směna a jednodenní nedostupnost se
+    vzájemně vylučují, takže se vždy jedna nastaví a druhá smaže. Vrátí
+    chybovou hlášku (str) při neúspěchu (zamčená směna/vícedenní
+    nedostupnost), jinak None."""
+    typ_smeny = hodnota if hodnota in ("D", "N") else None
+    typ_nedostupnosti = hodnota if hodnota in TYPY_NEDOSTUPNOSTI_V_CYKLU else None
+    try:
+        repo.nastavit_smenu(conn, zamestnanec_id, datum, typ_smeny)
+        repo.nastavit_nedostupnost_jednoho_dne(conn, zamestnanec_id, datum, typ_nedostupnosti)
+    except ValueError as e:
+        return str(e)
+    return None
 
 
 @app.post("/rozpis/bunka/{zamestnanec_id}/{datum}")
-def rozpis_bunka_cyklus(
+def rozpis_bunka_upravit(
+    request: Request,
     zamestnanec_id: int,
     datum: date,
     mesic: str = Form(...),
+    hodnota: str = Form(""),
+    profil: str = Form("normalni"),
     uzivatel: Uzivatel = Depends(vyzadovat_admina),
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
-    """Klik na nezamčenou buňku cykluje volno -> D -> N -> volno. Validace
-    tvrdých pravidel se NEBLOKUJE tady (admin smí vědomě uložit i
-    porušený stav - realita > solver, viz zadani-faze3-web.md úkol 8) -
-    porušení se jen dopočítá a označí při dalším vykreslení mřížky
-    (web/mrizka.py:sestavit_mrizku volá solver.validace.validovat_rozpis
-    vždycky, ne jen po téhle akci)."""
-    aktualni = repo.smena_pro_den(conn, zamestnanec_id, datum)
-    novy_typ = CYKLUS_SMENY[aktualni.typ if aktualni else None]
+    """Ruční úprava jedné buňky (klik cykluje hodnotu na frontendu,
+    Enter odešle - viz mrizka.html) rovnou spustí přegenerování zbytku
+    měsíce OD tohoto dne (úkol 9 - na přání, ne diff/potvrzení jako
+    hlavní tlačítko "Vygenerovat": tahle akce uživatel už jednou
+    potvrdil tím, že ručně vybral hodnotu).
+
+    Zamyká se JEN tenhle den zpětně (zamknout_do_dne na den-1) - den
+    samotné úpravy se nezamyká celý, jen právě upravená buňka (pokud má
+    směnu D/N - viz nastavit_smenu). Ostatní lidi ten den zůstávají
+    volní proměnní, aby je solver mohl doplnit/přeskupit (např. při
+    odebrání někoho ze směny má šanci najít náhradu - viz audit)."""
+    rok, mes = _rozlozit_mesic(mesic)
+
+    chyba = _nastavit_hodnotu_bunky(conn, zamestnanec_id, datum, hodnota)
+    if chyba:
+        # Zamčená směna/vícedenní nedostupnost - šablona takovou buňku
+        # vůbec nedělá klikatelnou (viz mrizka.html), tenhle požadavek
+        # jde jen ručně sestavený. Tiše návrat, stav v DB je platný.
+        return RedirectResponse(url=f"/rozpis?mesic={mesic}", status_code=status.HTTP_303_SEE_OTHER)
+
+    if hodnota in ("D", "N"):
+        # Zvolenou směnu je potřeba i zamknout, jinak by ji přegenerování
+        # o pár řádků níž mohlo rovnou přepsat něčím jiným.
+        smena = repo.smena_pro_den(conn, zamestnanec_id, datum)
+        if smena is not None:
+            repo.zamknout_smeny(conn, [smena.id])
+    if datum.day > 1:
+        repo.zamknout_do_dne(conn, rok, mes, datum.day - 1)
+
     try:
-        repo.nastavit_smenu(conn, zamestnanec_id, datum, novy_typ)
-    except ValueError:
-        # Zamčená směna - šablona takové buňky vůbec nedělá klikatelné
-        # (viz mrizka.html), tenhle klik jde jen přes ručně sestavený
-        # požadavek. Tiše se ignoruje, ne 500 - stav v DB je stále platný.
-        pass
-    return RedirectResponse(url=f"/rozpis?mesic={mesic}", status_code=status.HTTP_303_SEE_OTHER)
+        config, schedule = _vyresit(conn, rok, mes, profil)
+    except NelzeSestavitError as e:
+        config_bez_reseni = config_pro_mesic(conn, rok, mes, profil=profil)
+        return _vykreslit_rozpis(
+            request, conn, uzivatel, rok, mes, je_admin=True,
+            chyba_generovani=e.duvody,
+            profil_generovani=profil,
+            profil_generovani_nazev=PROFILY_NAZVY.get(profil, profil),
+            ma_zamcene_smeny=bool(config_bez_reseni.pevne_smeny),
+        )
+
+    preskocene = repo.ulozit_rozpis(conn, schedule)
+    url = (
+        f"/rozpis?mesic={rok}-{mes:02d}&vygenerovano=1"
+        f"&generovani_status={schedule.status}&generovani_cas={schedule.cas_reseni:.1f}"
+        f"&preskoceno={len(preskocene)}"
+    )
+    return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)

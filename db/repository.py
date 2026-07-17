@@ -377,6 +377,51 @@ def prekryvajici_nedostupnosti(
     return [_nedostupnost_z_radku(r) for r in radky]
 
 
+def nedostupnost_pro_den(
+    conn: sqlite3.Connection, zamestnanec_id: int, datum: date
+) -> Nedostupnost | None:
+    """Nedostupnost pokrývající tenhle den (jestli nějaká je) - úkol 9:
+    klikací úprava buňky potřebuje vědět, jestli je den součástí VÍCEdenní
+    nedostupnosti (viz nastavit_nedostupnost_jednoho_dne), ne jen jaký má
+    typ. Při (nepravděpodobném) překryvu víc záznamů vrátí první."""
+    radek = conn.execute(
+        """
+        SELECT * FROM nedostupnost
+        WHERE zamestnanec_id = ? AND od <= ? AND do >= ?
+        ORDER BY id LIMIT 1
+        """,
+        (zamestnanec_id, datum.isoformat(), datum.isoformat()),
+    ).fetchone()
+    return _nedostupnost_z_radku(radek) if radek else None
+
+
+def nastavit_nedostupnost_jednoho_dne(
+    conn: sqlite3.Connection, zamestnanec_id: int, datum: date, typ: str | None
+) -> None:
+    """Založí/přepíše/zruší JEDNODENNÍ nedostupnost (od=do=datum) - pro
+    klikací úpravu buňky v mřížce (úkol 9), ne pro běžné zadávání
+    (to jde přes pridat_nedostupnost/upravit_nedostupnost na
+    /admin/nedostupnosti). typ=None smaže. Nikdy nesahá na VÍCEdenní
+    záznam (týdenní dovolená apod.) - takový by šlo tímhle omylem
+    zkrátit/smazat po jednom kliknutí, proto raději ValueError a ať se
+    to opraví na /admin/nedostupnosti."""
+    existujici = nedostupnost_pro_den(conn, zamestnanec_id, datum)
+    if existujici is not None and existujici.od != existujici.do:
+        raise ValueError(
+            f"Nedostupnost {existujici.od.isoformat()}–{existujici.do.isoformat()} "
+            f"je vícedenní, nejde upravit po jednom dni - uprav ji na /admin/nedostupnosti."
+        )
+
+    if existujici is not None:
+        conn.execute("DELETE FROM nedostupnost WHERE id = ?", (existujici.id,))
+    if typ is not None:
+        conn.execute(
+            "INSERT INTO nedostupnost (zamestnanec_id, od, do, typ) VALUES (?, ?, ?, ?)",
+            (zamestnanec_id, datum.isoformat(), datum.isoformat(), typ),
+        )
+    conn.commit()
+
+
 # --- směny ---
 
 def _smazat_nezamcene(conn: sqlite3.Connection, od: date, do: date) -> None:
@@ -404,6 +449,36 @@ def smeny_v_mesici(conn: sqlite3.Connection, rok: int, mesic: int) -> list[Smena
         (prvni_den.isoformat(), posledni_den.isoformat()),
     ).fetchall()
     return [_smena_z_radku(r) for r in radky]
+
+
+def zamknout_do_dne(conn: sqlite3.Connection, rok: int, mesic: int, den: int) -> int:
+    """Zamkne všechny dosud nezamčené směny s datem <= (rok, mesic, den)
+    v daném měsíci. den <= 0 je no-op (není co zamknout před 1. dnem).
+    Obecný stavební kámen pro zamknout_minulost (cutoff = dnešek) i pro
+    ruční úpravu buňky (úkol 9: dny PŘED upraveným dnem se zamknou, ať
+    přegenerování "zbytku" nešahá na už schválenou minulost)."""
+    if den <= 0:
+        return 0
+    prvni_den = date(rok, mesic, 1)
+    cutoff = date(rok, mesic, min(den, calendar.monthrange(rok, mesic)[1]))
+    kurzor = conn.execute(
+        "UPDATE smena SET locked = 1 WHERE datum >= ? AND datum <= ? AND locked = 0",
+        (prvni_den.isoformat(), cutoff.isoformat()),
+    )
+    conn.commit()
+    return kurzor.rowcount
+
+
+def zamknout_minulost(conn: sqlite3.Connection, rok: int, mesic: int) -> int:
+    """Zamkne všechny dosud nezamčené směny s datem <= dnes v daném
+    měsíci (úkol 9: "zamknout minulost a odpracované směny" před
+    přegenerováním, viz CLAUDE.md klíčové workflow). Pro budoucí měsíc
+    (celý měsíc > dnes) je to no-op."""
+    posledni_den = min(date(rok, mesic, calendar.monthrange(rok, mesic)[1]), date.today())
+    prvni_den = date(rok, mesic, 1)
+    if posledni_den < prvni_den:
+        return 0
+    return zamknout_do_dne(conn, rok, mesic, posledni_den.day)
 
 
 def smena_pro_den(conn: sqlite3.Connection, zamestnanec_id: int, datum: date) -> Smena | None:

@@ -114,6 +114,20 @@ def config_pro_mesic(
             for den in dny:
                 dny_omezeni[den] = dny_omezeni.get(den, ()) + (n.zakazana_smena,)
 
+    # Zamčené směny jako pevný vstup solveru (úkol 9) - "přegenerovat
+    # zbytek měsíce" je díky tomuhle jen normální config_pro_mesic +
+    # generate_schedule, žádná zvláštní cesta navíc: solver dostane
+    # minulost/zamčené jako HOTOVÝ fakt (viz Config.pevne_smeny) a sám z
+    # něj těží pro N->D zákaz, max v řadě i fond.
+    pevne_smeny: dict[str, dict[int, str]] = {}
+    for s in repo.smeny_v_mesici(conn, rok, mesic):
+        if not s.locked:
+            continue
+        jmeno = jmeno_podle_id.get(s.zamestnanec_id)
+        if jmeno is None:
+            continue
+        pevne_smeny.setdefault(jmeno, {})[s.datum.day] = s.typ
+
     nekompatibilni_dvojice = []
     zakazane_dvojice = []
     for d in repo.dvojice_vsechny(conn):
@@ -162,6 +176,7 @@ def config_pro_mesic(
         "zakazane_smeny": zakazane_smeny,
         "max_smen_mesic_override": max_smen_mesic_override,
         "max_v_rade_override": max_v_rade_override,
+        "pevne_smeny": pevne_smeny,
     }
     return config_from_dict(data)
 
