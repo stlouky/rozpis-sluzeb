@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 
 from db import repository as repo
-from db.bridge import config_pro_mesic, schedule_z_db
+from db.bridge import config_pro_mesic, schedule_z_db, souhrn_vstupu
 from solver.core import generate_schedule
 from solver.schedule import Schedule
 
@@ -607,3 +607,29 @@ def test_schedule_z_db_neaktivni_zamestnanec_se_neobjevi(conn):
 
     schedule = schedule_z_db(conn, 2026, 8)
     assert "Alena" not in schedule.jmena
+
+
+def test_souhrn_vstupu_pocita_zamestnance_a_nedostupnosti(conn):
+    id_alena = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_zamestnance(conn, "Bedřich", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_alena, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+
+    pocet_zamestnancu, pocet_nedostupnosti = souhrn_vstupu(conn, 2026, 8)
+    assert pocet_zamestnancu == 2
+    assert pocet_nedostupnosti == 1
+
+
+def test_souhrn_vstupu_bez_nedostupnosti_vraci_nulu(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+
+    pocet_zamestnancu, pocet_nedostupnosti = souhrn_vstupu(conn, 2026, 8)
+    assert pocet_zamestnancu == 1
+    assert pocet_nedostupnosti == 0
+
+
+def test_souhrn_vstupu_ignoruje_nedostupnost_mimo_mesic(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 9, 1), date(2026, 9, 5), "DOV")
+
+    _, pocet_nedostupnosti = souhrn_vstupu(conn, 2026, 8)
+    assert pocet_nedostupnosti == 0

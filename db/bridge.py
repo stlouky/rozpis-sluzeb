@@ -126,6 +126,24 @@ def config_pro_mesic(
     return config_from_dict(data)
 
 
+def souhrn_vstupu(conn: sqlite3.Connection, rok: int, mesic: int) -> tuple[int, int]:
+    """(počet aktivních zaměstnanců, počet nedostupností) pro daný měsíc -
+    rychlý přehled vstupu PŘED spuštěním solveru (viz db/cli.py generuj).
+
+    config_pro_mesic ani generate_schedule nijak nekontrolují, jestli je
+    vstup podezřele řídký - prázdná nedostupnost je pro solver validní
+    stav (nikdo nemá nic nahlášeno), ne chyba, takže bez tohohle souhrnu
+    není vidět, když někdo zapomene import-txt/zadání nedostupností
+    spustit před generováním (viz incident: rozpis vznikl s nereálně
+    volnou rukou, protože tabulka nedostupnost byla prázdná).
+    """
+    prvni_den = date(rok, mesic, 1)
+    posledni_den = date(rok, mesic, calendar.monthrange(rok, mesic)[1])
+    pocet_zamestnancu = len(repo.aktivni_zamestnanci_v_obdobi(conn, prvni_den, posledni_den))
+    pocet_nedostupnosti = len(repo.nedostupnosti_v_obdobi(conn, prvni_den, posledni_den))
+    return pocet_zamestnancu, pocet_nedostupnosti
+
+
 def schedule_z_db(conn: sqlite3.Connection, rok: int, mesic: int) -> Schedule:
     """Sestaví Schedule (solver/schedule.py) z uložených směn v DB - pro
     zobrazení (web mřížka úkol 3, přepis do Cygnusu úkol 7), ať se

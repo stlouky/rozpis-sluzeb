@@ -11,7 +11,7 @@ from solver.core import NelzeSestavitError, generate_schedule
 
 from . import repository as repo
 from .auth import hashovat_heslo
-from .bridge import DEFAULT_CONFIG_YAML, config_pro_mesic
+from .bridge import DEFAULT_CONFIG_YAML, config_pro_mesic, souhrn_vstupu
 from .cesta import vychozi_cesta_db
 from .import_txt import najit_zamestnance, parsovat_radek_pozadavku, rozpoznat_typ
 
@@ -178,6 +178,20 @@ def _cmd_seznam_zamestnancu(args: argparse.Namespace) -> None:
 
 def _cmd_generuj(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
+
+    pocet_zamestnancu, pocet_nedostupnosti = souhrn_vstupu(conn, args.rok, args.mesic)
+    print(
+        f"Vstup: {pocet_zamestnancu} zaměstnanců, {pocet_nedostupnosti} nedostupností "
+        f"pro {args.rok}-{args.mesic:02d}"
+    )
+    if pocet_nedostupnosti == 0:
+        print(
+            "UPOZORNĚNÍ: pro tenhle měsíc není v DB žádná nedostupnost - pokud jsi "
+            "čekal(a) DOV/NEM/omezení směn, zkontroluj, že proběhl import "
+            "(např. import-txt) PŘED generováním. Bez nedostupností solver počítá "
+            "s tím, že má každý úplně volnou ruku.\n"
+        )
+
     config = config_pro_mesic(conn, args.rok, args.mesic, Path(args.config_yaml))
     try:
         schedule = generate_schedule(config)

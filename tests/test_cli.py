@@ -182,6 +182,36 @@ def test_cli_generuj_ulozi_smeny_do_db(tmp_path, capsys):
         assert pocet_n == 2, f"den {den}: {pocet_n} nočních směn v DB"
 
 
+def test_cli_generuj_vypise_souhrn_vstupu(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    _pridat_12_zamestnancu(cesta_db)
+    id_alena = 1  # první přidaný v _pridat_12_zamestnancu
+    main([
+        "--db", str(cesta_db), "pridat-nedostupnost", str(id_alena),
+        "2026-08-03", "2026-08-09", "DOV",
+    ])
+    capsys.readouterr()
+
+    main(["--db", str(cesta_db), "generuj", "2026", "8"])
+    vystup = capsys.readouterr().out
+
+    assert "Vstup: 12 zaměstnanců, 1 nedostupností pro 2026-08" in vystup
+    assert "UPOZORNĚNÍ" not in vystup
+
+
+def test_cli_generuj_bez_nedostupnosti_vypise_upozorneni(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    _pridat_12_zamestnancu(cesta_db)
+    capsys.readouterr()
+
+    main(["--db", str(cesta_db), "generuj", "2026", "8"])
+    vystup = capsys.readouterr().out
+
+    assert "Vstup: 12 zaměstnanců, 0 nedostupností pro 2026-08" in vystup
+    assert "UPOZORNĚNÍ" in vystup
+    assert "import-txt" in vystup
+
+
 def test_cli_generuj_vypise_preskocene_konflikty_se_zamcenou_smenou(tmp_path, capsys, monkeypatch):
     cesta_db = tmp_path / "test.db"
     _pridat_12_zamestnancu(cesta_db)
