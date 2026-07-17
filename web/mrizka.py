@@ -96,10 +96,13 @@ class MrizkaMesice:
     vikendy: list[bool]
     radky: list[RadekZamestnance]
     obsazeni: list[tuple[int, int]]  # (počet D, počet N) za den, stejné pořadí jako dny
-    # Den je "krizový", když jeho denní obsazení nedosáhne maxima, kterého
-    # se v tomhle měsíci jinak běžně dosahuje (viz sestavit_mrizku) - datově
-    # řízené, ne natvrdo porovnané s config.yaml, ať to funguje i s jiným
-    # profilem obsazení (úkol 5).
+    # Den je "krizový", když jeho denní NEBO noční obsazení nedosáhne maxima,
+    # kterého se v tomhle měsíci jinak běžně dosahuje (viz sestavit_mrizku) -
+    # datově řízené, ne natvrdo porovnané s config.yaml, ať to funguje i s
+    # jiným profilem obsazení (úkol 5). Noční se počítá zvlášť od denního -
+    # podstav v noci (typicky pád na 1 místo 2) je bezpečnostně kritičtější
+    # než podstav ve dne, ale den s plným denním obsazením by ho jinak
+    # přebil a schoval (viz audit).
     krizove_dny: list[bool]
 
 
@@ -161,11 +164,17 @@ def sestavit_mrizku(conn: sqlite3.Connection, rok: int, mesic: int, je_admin: bo
         )
 
     obsazeni = [schedule.obsazeni_dne(d) for d in dny]
-    # "Krizový" den = denní obsazení pod maximem, kterého tenhle měsíc
-    # jinde běžně dosahuje (ne natvrdo 4 - obsazeni_dne může mít i jiný
-    # profil, viz úkol 5). Bez dat (nikdo nikde plný) se nic neoznačí.
+    # "Krizový" den = denní NEBO noční obsazení pod maximem, kterého tenhle
+    # měsíc jinde běžně dosahuje (ne natvrdo 4/2 - obsazeni_dne může mít i
+    # jiný profil, viz úkol 5). Denní a noční se posuzují nezávisle - den
+    # s plným denním obsazením, ale podstavenou nocí, musí zůstat krizový
+    # (viz audit: noční podstav se dřív schoval za plný denní stav).
+    # Bez dat (nikdo nikde plný) se nic neoznačí.
     nejvyssi_denni = max((d for d, _ in obsazeni), default=0)
-    krizove_dny = [d < nejvyssi_denni for d, _ in obsazeni]
+    nejvyssi_nocni = max((n for _, n in obsazeni), default=0)
+    krizove_dny = [
+        d < nejvyssi_denni or n < nejvyssi_nocni for d, n in obsazeni
+    ]
 
     return MrizkaMesice(
         rok=rok,

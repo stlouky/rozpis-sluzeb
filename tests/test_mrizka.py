@@ -80,6 +80,34 @@ def test_sestavit_mrizku_krizove_dny_pod_mesicnim_maximem(conn):
     assert mrizka.krizove_dny[2] is True  # 3.8. - pod maximem
 
 
+def test_sestavit_mrizku_krizove_dny_i_kdyz_je_denni_plne(conn):
+    """Noční podstav musí být krizový samostatně, i když má ten den denní
+    obsazení na měsíčním maximu - dřív ho plný denní stav "schoval" (viz
+    audit)."""
+    for jmeno in ("Alena", "Bedřich", "Cyril", "Dana"):
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    # 1.8.: denní i noční na maximu (2, 2); 2.8.: denní pořád plné (2), ale
+    # noční jen 1 - podstav, přesto by ho stará logika (jen podle denní)
+    # neoznačila jako krizový.
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena", "Bedřich", "Cyril", "Dana"),
+        smeny={
+            ("Alena", 1): "D", ("Bedřich", 1): "D",
+            ("Cyril", 1): "N", ("Dana", 1): "N",
+            ("Alena", 2): "D", ("Bedřich", 2): "D",
+            ("Cyril", 2): "N",
+        },
+        status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    assert mrizka.obsazeni[0] == (2, 2)
+    assert mrizka.obsazeni[1] == (2, 1)
+    assert mrizka.krizove_dny[0] is False  # 1.8. - denní i noční na maximu
+    assert mrizka.krizove_dny[1] is True  # 2.8. - denní plné, ale noční pod maximem
+
+
 def test_sestavit_mrizku_souhrn_pocita_d_n_vikend(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     # 1.8.2026 je sobota (víkend) - D tuhle sobotu, N v pondělí (ne víkend)
