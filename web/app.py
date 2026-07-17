@@ -292,13 +292,27 @@ def admin_zamestnanec_upravit_jmeno(
 
 @app.post("/admin/zamestnanci/{zamestnanec_id}/deaktivovat")
 def admin_zamestnanec_deaktivovat(
+    request: Request,
     zamestnanec_id: int,
     aktivni_do: date = Form(...),
     uzivatel: Uzivatel = Depends(vyzadovat_admina),
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
-    _zamestnanec_nebo_404(conn, zamestnanec_id)
-    repo.deaktivovat_zamestnance(conn, zamestnanec_id, aktivni_do)
+    zamestnanec = _zamestnanec_nebo_404(conn, zamestnanec_id)
+    try:
+        repo.deaktivovat_zamestnance(conn, zamestnanec_id, aktivni_do)
+    except ValueError as e:
+        return sablony.TemplateResponse(
+            request,
+            "admin_zamestnanec_upravit.html",
+            {
+                "uzivatel": uzivatel,
+                "zamestnanec": zamestnanec,
+                "ma_smenu": repo.ma_nejakou_smenu(conn, zamestnanec_id),
+                "chyba": str(e),
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     return RedirectResponse(url="/admin/zamestnanci", status_code=status.HTTP_303_SEE_OTHER)
 
 
@@ -383,6 +397,7 @@ def admin_nedostupnost_nova_formular(
 
 @app.post("/admin/nedostupnosti/nova")
 def admin_nedostupnost_nova_odeslani(
+    request: Request,
     zamestnanec_id: int = Form(...),
     od: date = Form(...),
     do: date = Form(...),
@@ -392,9 +407,22 @@ def admin_nedostupnost_nova_odeslani(
     uzivatel: Uzivatel = Depends(vyzadovat_admina),
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
-    nova_id = repo.pridat_nedostupnost(
-        conn, zamestnanec_id, od, do, typ, poznamka.strip() or None, _bez_smeny(zakazana_smena)
-    )
+    try:
+        nova_id = repo.pridat_nedostupnost(
+            conn, zamestnanec_id, od, do, typ, poznamka.strip() or None, _bez_smeny(zakazana_smena)
+        )
+    except ValueError as e:
+        return sablony.TemplateResponse(
+            request,
+            "admin_nedostupnost_nova.html",
+            {
+                "uzivatel": uzivatel,
+                "chyba": str(e),
+                "zamestnanci": repo.aktivni_zamestnanci(conn, date.today()),
+                "typy": NAZEV_NEDOSTUPNOSTI,
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     # Překryv jen jako varování, ne blokace (viz úkol 5 zadání) - záznam
     # je uložený, i když se s jiným časově kryje.
     prekryv = repo.prekryvajici_nedostupnosti(conn, zamestnanec_id, od, do, vynechat_id=nova_id)
@@ -428,6 +456,7 @@ def admin_nedostupnost_upravit_formular(
 
 @app.post("/admin/nedostupnosti/{nedostupnost_id}/upravit")
 def admin_nedostupnost_upravit_odeslani(
+    request: Request,
     nedostupnost_id: int,
     od: date = Form(...),
     do: date = Form(...),
@@ -438,9 +467,24 @@ def admin_nedostupnost_upravit_odeslani(
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
     nedostupnost = _nedostupnost_nebo_404(conn, nedostupnost_id)
-    repo.upravit_nedostupnost(
-        conn, nedostupnost_id, od, do, typ, poznamka.strip() or None, _bez_smeny(zakazana_smena)
-    )
+    try:
+        repo.upravit_nedostupnost(
+            conn, nedostupnost_id, od, do, typ, poznamka.strip() or None, _bez_smeny(zakazana_smena)
+        )
+    except ValueError as e:
+        zamestnanec = repo.zamestnanec_podle_id(conn, nedostupnost.zamestnanec_id)
+        return sablony.TemplateResponse(
+            request,
+            "admin_nedostupnost_upravit.html",
+            {
+                "uzivatel": uzivatel,
+                "chyba": str(e),
+                "nedostupnost": nedostupnost,
+                "zamestnanec": zamestnanec,
+                "typy": NAZEV_NEDOSTUPNOSTI,
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     prekryv = repo.prekryvajici_nedostupnosti(
         conn, nedostupnost.zamestnanec_id, od, do, vynechat_id=nedostupnost_id
     )
@@ -467,14 +511,15 @@ PROFILY = ("normalni", "krizovy")
 
 
 def _validovat_nastaveni(n: NastaveniProfilu) -> str | None:
-    """Stejné meze jako solver.config.Config.validovat(), jen dřív -
-    admin se o chybě dozví hned při uložení, ne až při generování
-    (úkol 6 v době psaní ještě neexistuje, config_pro_mesic by chybu
-    vyhodil, ale nic by ji nezobrazilo)."""
-    if not (0 <= n.denni_min <= n.denni_max):
-        return "Denní obsazení: min musí být <= max a >= 0."
-    if not (0 <= n.nocni_min <= n.nocni_max):
-        return "Noční obsazení: min musí být <= max a >= 0."
+    """Kromě vnitřní konzistence (min<=max) i doménová minima z CLAUDE.md
+    ("denní: 3-4 lidi, noční: tvrdě 1-2 - platí každý den, oba profily").
+    Bez tohohle by šlo přes /admin/nastaveni tiše uložit profil, který
+    tahle jinak neměnná pravidla poruší (viz audit) - solver.config.Config
+    zná jen min<=max, ne konkrétní čísla, takže by to samo nechytilo."""
+    if not (3 <= n.denni_min <= n.denni_max <= 4):
+        return "Denní obsazení musí být v rozsahu 3-4 (min <= max), viz CLAUDE.md."
+    if not (1 <= n.nocni_min <= n.nocni_max <= 2):
+        return "Noční obsazení musí být v rozsahu 1-2 (min <= max), viz CLAUDE.md."
     if n.max_v_rade < 1:
         return "Max směn v řadě musí být alespoň 1."
     if n.max_smen_mesic < 1:

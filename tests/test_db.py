@@ -84,6 +84,26 @@ def test_deaktivovany_zamestnanec_zmizi_po_datu_odchodu(conn):
     assert id_ in {z.id for z in aktivni_v_den_odchodu}  # aktivni_do je včetně
 
 
+def test_deaktivovat_zamestnance_pred_nastupem_vyhodi_value_error(conn):
+    """Audit: aktivni_do před aktivni_od by zaměstnance potichu vyřadilo
+    ze VŠECH "aktivní" dotazů (i zpětně) - žádné datum by nesplnilo
+    aktivni_od <= datum <= aktivni_do zároveň."""
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2026, 6, 1))
+    with pytest.raises(ValueError, match="nástupem"):
+        repo.deaktivovat_zamestnance(conn, id_, date(2026, 5, 1))
+
+    # neúspěšná deaktivace nesmí zaměstnance poškodit - pořád aktivní
+    aktivni = repo.aktivni_zamestnanci(conn, date(2026, 6, 15))
+    assert id_ in {z.id for z in aktivni}
+
+
+def test_deaktivovat_zamestnance_v_den_nastupu_projde(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2026, 6, 1))
+    repo.deaktivovat_zamestnance(conn, id_, date(2026, 6, 1))
+    aktivni = repo.aktivni_zamestnanci(conn, date(2026, 6, 1))
+    assert id_ in {z.id for z in aktivni}
+
+
 def test_zamestnanec_podle_id(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     assert repo.zamestnanec_podle_id(conn, id_).jmeno == "Alena"
@@ -701,6 +721,34 @@ def test_nedostupnost_typ_svz_projde(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     ned_id = repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "SVZ")
     assert repo.nedostupnost_podle_id(conn, ned_id).typ == "SVZ"
+
+
+def test_pridat_nedostupnost_obraceny_rozsah_vyhodi_value_error(conn):
+    """Audit: obrácený rozsah (od > do) by se tiše uložil jako záznam,
+    který ve skutečnosti nic neblokuje (dny_v_mesici na něm vrátí 0 dní)."""
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    with pytest.raises(ValueError, match="od.*do"):
+        repo.pridat_nedostupnost(conn, id_, date(2026, 8, 9), date(2026, 8, 3), "DOV")
+    assert repo.nedostupnosti_v_obdobi(conn, date(2026, 8, 1), date(2026, 8, 31)) == []
+
+
+def test_pridat_nedostupnost_stejny_den_projde(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    ned_id = repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 3), "DOV")
+    assert repo.nedostupnost_podle_id(conn, ned_id) is not None
+
+
+def test_upravit_nedostupnost_obraceny_rozsah_vyhodi_value_error(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    ned_id = repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+
+    with pytest.raises(ValueError, match="od.*do"):
+        repo.upravit_nedostupnost(conn, ned_id, date(2026, 8, 9), date(2026, 8, 3), "DOV")
+
+    # neúspěšná úprava nesmí poškodit původní záznam
+    puvodni = repo.nedostupnost_podle_id(conn, ned_id)
+    assert puvodni.od == date(2026, 8, 3)
+    assert puvodni.do == date(2026, 8, 9)
 
 
 def test_upravit_nedostupnost(conn):

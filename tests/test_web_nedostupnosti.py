@@ -122,6 +122,57 @@ def test_vytvoreni_bez_prekryvu_bez_varovani(klient):
     assert "překrývá" not in odpoved.text
 
 
+def test_vytvoreni_s_obracenym_rozsahem_vraci_chybu_a_neuklada(klient):
+    """Audit: od > do by se dřív tiše uložilo jako záznam, který ve
+    skutečnosti nic neblokuje."""
+    odpoved = klient.post(
+        "/admin/nedostupnosti/nova",
+        data={
+            "zamestnanec_id": klient.id_alena,
+            "od": "2026-08-09",
+            "do": "2026-08-03",
+            "typ": "DOV",
+        },
+    )
+    assert odpoved.status_code == 400
+    assert repo.vsechny_nedostupnosti(_conn(klient)) == []
+
+
+def test_varovani_jednotne_cislo_ma_spravny_tvar(klient):
+    """Audit: skloňování "1 další nedostupnost" (ne "...nedostupnosti")."""
+    conn = _conn(klient)
+    repo.pridat_nedostupnost(conn, klient.id_alena, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+
+    odpoved = klient.post(
+        "/admin/nedostupnosti/nova",
+        data={
+            "zamestnanec_id": klient.id_alena,
+            "od": "2026-08-08",
+            "do": "2026-08-12",
+            "typ": "OST",
+        },
+    )
+    assert "1 další nedostupnost se" in odpoved.text
+    assert "1 další nedostupnosti" not in odpoved.text
+
+
+def test_varovani_pro_dve_prekryvajici_ma_spravny_tvar(klient):
+    conn = _conn(klient)
+    repo.pridat_nedostupnost(conn, klient.id_alena, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+    repo.pridat_nedostupnost(conn, klient.id_alena, date(2026, 8, 4), date(2026, 8, 10), "NEM")
+
+    odpoved = klient.post(
+        "/admin/nedostupnosti/nova",
+        data={
+            "zamestnanec_id": klient.id_alena,
+            "od": "2026-08-05",
+            "do": "2026-08-11",
+            "typ": "OST",
+        },
+    )
+    assert "2 další nedostupnosti se" in odpoved.text
+
+
 # --- nedostupnosti: úprava ---
 
 def test_uprava_nedostupnosti(klient):
@@ -146,6 +197,21 @@ def test_uprava_nedostupnosti_ktera_neexistuje_404(klient):
         data={"od": "2026-08-05", "do": "2026-08-06", "typ": "OST"},
     )
     assert odpoved.status_code == 404
+
+
+def test_uprava_s_obracenym_rozsahem_vraci_chybu_a_nezmeni_zaznam(klient):
+    conn = _conn(klient)
+    ned_id = repo.pridat_nedostupnost(conn, klient.id_alena, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+
+    odpoved = klient.post(
+        f"/admin/nedostupnosti/{ned_id}/upravit",
+        data={"od": "2026-08-09", "do": "2026-08-03", "typ": "DOV"},
+    )
+    assert odpoved.status_code == 400
+
+    puvodni = repo.nedostupnost_podle_id(_conn(klient), ned_id)
+    assert puvodni.od == date(2026, 8, 3)
+    assert puvodni.do == date(2026, 8, 9)
 
 
 # --- nedostupnosti: smazání ---
@@ -205,6 +271,45 @@ def test_ulozeni_neplatneho_nastaveni_vraci_chybu(klient):
     )
     assert odpoved.status_code == 400
     assert repo.nastaveni_pro_profil(_conn(klient), "normalni") is None
+
+
+def test_ulozeni_nastaveni_pod_domenovym_minimem_vraci_chybu(klient):
+    """Audit: validace dřív hlídala jen min<=max>=0, ne CLAUDE.md pravidla
+    (denní 3-4, noční tvrdě 1-2) - denni_min=0 dřív prošlo bez varování."""
+    odpoved = klient.post(
+        "/admin/nastaveni/normalni",
+        data={
+            "denni_min": "0", "denni_max": "4", "nocni_min": "2", "nocni_max": "2",
+            "max_v_rade": "3", "max_smen_mesic": "15",
+        },
+    )
+    assert odpoved.status_code == 400
+    assert repo.nastaveni_pro_profil(_conn(klient), "normalni") is None
+
+
+def test_ulozeni_nastaveni_nad_domenovym_maximem_vraci_chybu(klient):
+    odpoved = klient.post(
+        "/admin/nastaveni/normalni",
+        data={
+            "denni_min": "3", "denni_max": "4", "nocni_min": "1", "nocni_max": "3",
+            "max_v_rade": "3", "max_smen_mesic": "15",
+        },
+    )
+    assert odpoved.status_code == 400
+    assert repo.nastaveni_pro_profil(_conn(klient), "normalni") is None
+
+
+def test_ulozeni_nastaveni_krizovy_profil_nocni_min_1_projde(klient):
+    """Krizový profil smí sáhnout na spodní hranici tvrdého rozsahu 1-2."""
+    odpoved = klient.post(
+        "/admin/nastaveni/krizovy",
+        data={
+            "denni_min": "3", "denni_max": "4", "nocni_min": "1", "nocni_max": "2",
+            "max_v_rade": "3", "max_smen_mesic": "18",
+        },
+    )
+    assert odpoved.status_code == 200
+    assert repo.nastaveni_pro_profil(_conn(klient), "krizovy").nocni_min == 1
 
 
 def test_neznamy_profil_404(klient):

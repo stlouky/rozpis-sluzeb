@@ -135,7 +135,18 @@ def pridat_zamestnance(
 
 
 def deaktivovat_zamestnance(conn: sqlite3.Connection, zamestnanec_id: int, aktivni_do: date) -> None:
-    """Nastaví datum odchodu. Zaměstnanec se nikdy nemaže."""
+    """Nastaví datum odchodu. Zaměstnanec se nikdy nemaže.
+
+    aktivni_do před aktivni_od by zaměstnance potichu vyřadilo ze VŠECH
+    "aktivní" dotazů (i zpětně, viz aktivni_zamestnanci_v_obdobi) - žádné
+    datum by pak nesplnilo aktivni_od <= datum <= aktivni_do zároveň
+    (viz audit)."""
+    zamestnanec = zamestnanec_podle_id(conn, zamestnanec_id)
+    if zamestnanec is not None and aktivni_do < zamestnanec.aktivni_od:
+        raise ValueError(
+            f"Datum odchodu ({aktivni_do.isoformat()}) nesmí být před nástupem "
+            f"({zamestnanec.aktivni_od.isoformat()})."
+        )
     conn.execute(
         "UPDATE zamestnanec SET aktivni_do = ? WHERE id = ?",
         (aktivni_do.isoformat(), zamestnanec_id),
@@ -255,6 +266,15 @@ def aktivni_zamestnanci_v_obdobi(conn: sqlite3.Connection, od: date, do: date) -
 
 # --- nedostupnosti ---
 
+def _validovat_rozsah(od: date, do: date) -> None:
+    """Obrácený rozsah (od > do) by se tiše uložil jako nedostupnost,
+    která ve skutečnosti nic neblokuje - dny_v_mesici() na prázdném
+    intervalu vrátí 0 dní, takže zaměstnanec by zůstal plně dostupný,
+    přestože záznam v DB vypadá, že je pokrytý (viz audit)."""
+    if od > do:
+        raise ValueError(f"Datum „od“ ({od.isoformat()}) musí být <= „do“ ({do.isoformat()}).")
+
+
 def pridat_nedostupnost(
     conn: sqlite3.Connection,
     zamestnanec_id: int,
@@ -264,6 +284,7 @@ def pridat_nedostupnost(
     poznamka: str | None = None,
     zakazana_smena: str | None = None,
 ) -> int:
+    _validovat_rozsah(od, do)
     kurzor = conn.execute(
         """
         INSERT INTO nedostupnost (zamestnanec_id, od, do, typ, poznamka, zakazana_smena)
@@ -299,6 +320,7 @@ def upravit_nedostupnost(
     """Přepíše existující záznam (úkol 4 přidal jen add/remove - tohle je
     "doplnit editaci" z úkolu 5, ať admin nemusí mazat a zakládat znovu
     kvůli překlepu v datu/popisu)."""
+    _validovat_rozsah(od, do)
     conn.execute(
         """
         UPDATE nedostupnost

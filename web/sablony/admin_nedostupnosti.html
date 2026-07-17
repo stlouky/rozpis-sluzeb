@@ -10,9 +10,17 @@
 
   {% if varovani %}
     <p class="chyba">
-      Pozor: {{ varovani }} další nedostupnost{{ 'i' if varovani == 1 else 'i' if varovani < 5 else 'í' }}
-      se pro tohoto zaměstnance časově překrývá se zadaným intervalem. Uloženo
-      i tak - zkontroluj prosím, jestli je to v pořádku.
+      {% if varovani == 1 %}
+        Pozor: 1 další nedostupnost se pro tohoto zaměstnance časově
+        překrývá se zadaným intervalem.
+      {% elif varovani < 5 %}
+        Pozor: {{ varovani }} další nedostupnosti se pro tohoto zaměstnance
+        časově překrývají se zadaným intervalem.
+      {% else %}
+        Pozor: {{ varovani }} dalších nedostupností se pro tohoto zaměstnance
+        časově překrývá se zadaným intervalem.
+      {% endif %}
+      Uloženo i tak - zkontroluj prosím, jestli je to v pořádku.
     </p>
   {% endif %}
 

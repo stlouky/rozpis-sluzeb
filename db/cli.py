@@ -43,7 +43,11 @@ def _cmd_pridat_zamestnance(args: argparse.Namespace) -> None:
 
 def _cmd_deaktivovat_zamestnance(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
-    repo.deaktivovat_zamestnance(conn, args.id, date.fromisoformat(args.aktivni_do))
+    try:
+        repo.deaktivovat_zamestnance(conn, args.id, date.fromisoformat(args.aktivni_do))
+    except ValueError as e:
+        print(e)
+        raise SystemExit(1)
     print(f"Zaměstnanec {args.id} deaktivován od {args.aktivni_do}")
 
 
@@ -55,15 +59,19 @@ def _cmd_opravit_jmeno(args: argparse.Namespace) -> None:
 
 def _cmd_pridat_nedostupnost(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
-    id_ = repo.pridat_nedostupnost(
-        conn,
-        args.zamestnanec_id,
-        date.fromisoformat(args.od),
-        date.fromisoformat(args.do),
-        args.typ,
-        args.poznamka,
-        args.zakazana_smena,
-    )
+    try:
+        id_ = repo.pridat_nedostupnost(
+            conn,
+            args.zamestnanec_id,
+            date.fromisoformat(args.od),
+            date.fromisoformat(args.do),
+            args.typ,
+            args.poznamka,
+            args.zakazana_smena,
+        )
+    except ValueError as e:
+        print(e)
+        raise SystemExit(1)
     print(f"Nedostupnost přidána, id={id_}")
 
 
@@ -134,7 +142,11 @@ def _cmd_import_txt(args: argparse.Namespace) -> None:
                 # zamestnanec.aktivni_do (poslední den = polozka.do,
                 # včetně), ne jako jednodenní/vícedenní OST záznam, jinak
                 # by zaměstnanec zůstal "aktivní" i po svém posledním dni.
-                repo.deaktivovat_zamestnance(conn, zamestnanec.id, polozka.do)
+                try:
+                    repo.deaktivovat_zamestnance(conn, zamestnanec.id, polozka.do)
+                except ValueError as e:
+                    chyby.append(f"řádek {cislo_radku}: {e}")
+                    continue
                 print(
                     f"Řádek {cislo_radku}: {polozka.jmeno} - konec pracovního poměru "
                     f"k {polozka.do.isoformat()} (nastaveno aktivni_do, NE nedostupnost)."
@@ -171,9 +183,13 @@ def _cmd_import_txt(args: argparse.Namespace) -> None:
             if duplicita:
                 continue
 
-            repo.pridat_nedostupnost(
-                conn, zamestnanec.id, polozka.od, polozka.do, typ, zakazana_smena=zakazana_smena
-            )
+            try:
+                repo.pridat_nedostupnost(
+                    conn, zamestnanec.id, polozka.od, polozka.do, typ, zakazana_smena=zakazana_smena
+                )
+            except ValueError as e:
+                chyby.append(f"řádek {cislo_radku}: {e}")
+                continue
             pridano_nedostupnosti += 1
 
     print(

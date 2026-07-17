@@ -67,6 +67,20 @@ def test_cli_deaktivovat_zamestnance_zmizi_ze_seznamu(tmp_path, capsys):
     assert "Alena" in vystup_pred
 
 
+def test_cli_deaktivovat_zamestnance_pred_nastupem_selze(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    main(["--db", str(cesta_db), "pridat-zamestnance", "Alena", "2026-06-01"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--db", str(cesta_db), "deaktivovat-zamestnance", "1", "2026-01-01"])
+    assert excinfo.value.code == 1
+    assert "nástupem" in capsys.readouterr().out
+
+    main(["--db", str(cesta_db), "seznam-zamestnancu", "--datum", "2026-06-15"])
+    assert "Alena" in capsys.readouterr().out
+
+
 def test_cli_opravit_jmeno(tmp_path, capsys):
     cesta_db = tmp_path / "test.db"
     main(["--db", str(cesta_db), "pridat-zamestnance", "Adamcová Bezemková Andrea", "2020-01-01"])
@@ -79,6 +93,20 @@ def test_cli_opravit_jmeno(tmp_path, capsys):
     vystup = capsys.readouterr().out
     assert "Bezemková Andrea" in vystup
     assert "Adamcová" not in vystup
+
+
+def test_cli_pridat_nedostupnost_obraceny_rozsah_selze(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    main(["--db", str(cesta_db), "pridat-zamestnance", "Alena", "2020-01-01"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as excinfo:
+        main([
+            "--db", str(cesta_db), "pridat-nedostupnost", "1",
+            "2026-08-09", "2026-08-03", "DOV",
+        ])
+    assert excinfo.value.code == 1
+    assert "od" in capsys.readouterr().out.lower()
 
 
 def test_cli_pridat_nedostupnost_se_projevi_v_rozpisu(tmp_path, capsys):
@@ -415,3 +443,33 @@ def test_import_txt_neznamy_typ_je_chyba_s_citaci_radku_ne_ost_odhad(tmp_path, c
 
     conn = repo.pripojit(cesta_db)
     assert repo.nedostupnosti_v_obdobi(conn, date(2026, 1, 1), date(2026, 12, 31)) == []
+
+
+def test_import_txt_obraceny_rozsah_je_chyba_ne_pad_importu(tmp_path, capsys):
+    # audit: "9.8 - 3.8" (přehozené datum v souboru) by dřív spadlo na
+    # nezachycený ValueError z repo.pridat_nedostupnost a shodilo celý
+    # import - teď se to sesbírá jako běžná chyba řádku, ostatní řádky
+    # se doimportují.
+    zamestnanci_soubor = tmp_path / "zamestnanci.txt"
+    zamestnanci_soubor.write_text("Testovská Anna\nVzorková Bedřiška\n", encoding="utf-8")
+    pozadavky_soubor = tmp_path / "pozadavky.txt"
+    pozadavky_soubor.write_text(
+        "9.8 - 3.8, Testovská, dovolená\n5.3, Vzorková, nemoc\n", encoding="utf-8"
+    )
+
+    cesta_db = tmp_path / "test.db"
+    with pytest.raises(SystemExit) as excinfo:
+        main([
+            "--db", str(cesta_db), "import-txt",
+            str(zamestnanci_soubor), str(pozadavky_soubor), "--rok", "2026",
+        ])
+    assert excinfo.value.code == 1
+    vystup = capsys.readouterr().out
+
+    assert "řádek 1" in vystup
+    assert "1 nedostupností přidáno" in vystup  # řádek 2 (Vzorková) se doimportoval
+
+    conn = repo.pripojit(cesta_db)
+    nedostupnosti = repo.nedostupnosti_v_obdobi(conn, date(2026, 1, 1), date(2026, 12, 31))
+    assert len(nedostupnosti) == 1
+    assert nedostupnosti[0].typ == "NEM"

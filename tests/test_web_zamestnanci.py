@@ -173,6 +173,16 @@ def test_deaktivace_zmizi_ze_seznamu_ale_zustane_s_vsichni(klient):
     assert "Alena" in klient.get("/admin/zamestnanci?vsichni=1").text
 
 
+def test_deaktivace_pred_nastupem_vraci_chybu_a_zamestnanec_zustane_aktivni(klient):
+    """Audit: aktivni_do před aktivni_od (Alena nastoupila 2020-01-01) by
+    ji potichu vyřadilo ze VŠECH "aktivní" dotazů, i zpětně."""
+    odpoved = klient.post(
+        f"/admin/zamestnanci/{klient.id_alena}/deaktivovat", data={"aktivni_do": "2019-01-01"}
+    )
+    assert odpoved.status_code == 400
+    assert "Alena" in klient.get("/admin/zamestnanci").text
+
+
 # --- smazání ---
 
 def test_smazani_bez_smeny(klient):
