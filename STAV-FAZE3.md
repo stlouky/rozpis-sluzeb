@@ -36,9 +36,12 @@ vyžádání jako obvykle (další na řadě je Úkol 4).
 | — | `ca5864b` | oprava (audit appky): krizové dny podle denní I noční směny, ne jen denní - noční podstav se dřív schoval za plný denní stav |
 | — | `ffd67a6` | oprava (audit appky): rate limiting na `/login` (5 pokusů / 5 minut podle jména, ne IP) |
 | 4 | `1acbe16` | admin: správa zaměstnanců - seznam (jen aktivní/i bývalí), přidání vč. štítku fyzická výpomoc a neslučitelných dvojic v jednom formuláři, oprava jména, deaktivace, tvrdé smazání jen bez existující směny |
-| 5 | `24efadf` | admin: nedostupnosti (CRUD vč. editace, překryvy jen jako varování) + parametry pravidel (`nastaveni` tabulka, profily normalni/krizovy, `config_pro_mesic` je bere z DB místo config.yaml, pokud existují) + migrace `nedostupnost.typ` o `SVZ` (školení v zařízení) - migrace na `data/rozpis.db` ZATÍM NESPUŠTĚNA, viz sekce níž |
+| 5 | `24efadf` | admin: nedostupnosti (CRUD vč. editace, překryvy jen jako varování) + parametry pravidel (`nastaveni` tabulka, profily normalni/krizovy, `config_pro_mesic` je bere z DB místo config.yaml, pokud existují) + migrace `nedostupnost.typ` o `SVZ` (školení v zařízení) - migrace na `data/rozpis.db` provedena, viz sekce níž |
+| — | `f35f553` | migrace na `data/rozpis.db` provedena (SVZ CHECK + tabulka `nastaveni`), `.gitignore` o `*.bak` |
+| — | `af421f8` | oprava (audit appky): 4 nálezy (validace `od<=do` u nedostupností, doménová minima v `nastaveni`, skloňování v hlášce o překryvu, validace `aktivni_do>=aktivni_od` při deaktivaci) |
+| 6 | `1729666` | admin: VYGENEROVAT - tlačítko na mřížce (měsíc + profil normalni/krizovy) → solver → uložení → potvrzení na mřížce; vždy pevný `random_seed` (num_search_workers=1, deterministické); nesplnitelnost se ukáže na mřížce s diagnostikou + "Zkusit krizový profil", HTTP 200 ne 500 |
 
-**Testy:** 238, celá sada zelená. Spouštět vždy
+**Testy:** 261, celá sada zelená. Spouštět vždy
 `.venv/bin/python -m pytest -q` (běží ~3–4 min kvůli solver testům).
 
 ## Reálný stav dat (`data/rozpis.db`, srpen 2026)
@@ -71,8 +74,8 @@ Systematicky vyzkoušeno, co by pomohlo:
 
 ## Rozdělané / nezačaté úkoly
 
-- **Úkol 6** — admin: VYGENEROVAT (jádro hlavního scénáře) — DALŠÍ NA ŘADĚ, nezačato.
-- Úkoly 7–9 — nezačato.
+- **Úkol 7** — pohled pro přepis do Cygnusu — DALŠÍ NA ŘADĚ, nezačato.
+- Úkoly 8–9 — nezačato.
 - Úkol 9b — samoobslužné podávání požadavků (zapsáno v
   `zadani-faze3-web.md`, revize dřívějšího "NEIMPLEMENTUJE SE") — nezačato.
 - Úkol 10 (deploy) — připraveno v `DEPLOY.md` (lokální, negitované),
