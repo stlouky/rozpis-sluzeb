@@ -7,10 +7,11 @@ my děláme JEN návrh rozpisu a jeho přeskládání při změnách.
 Kompletní návrh viz NAVRH.md.
 
 ## Stack
-Python 3.12, OR-Tools CP-SAT (solver), FastAPI, SQLite, Jinja2.
+Python 3.13, OR-Tools CP-SAT (solver), FastAPI, SQLite, Jinja2.
 Deploy: Hetzner VPS, systemd + Caddy. Žádný frontend build systém.
-Python 3.12+, běh a testy VŽDY přes .venv (.venv/bin/python -m pytest)
-— systémový Python nemá ortools/pyyaml. Na deploy cílit Python 3.12.
+Python 3.13+, běh a testy VŽDY přes .venv (.venv/bin/python -m pytest)
+— systémový Python nemá ortools/pyyaml. Na deploy cílit Python 3.13
+(verze na produkčním serveru, Debian 13 - viz DEPLOY.md, úkol 0b).
 
 ## Doménová pravidla (NEMĚNIT bez zadání)
 
