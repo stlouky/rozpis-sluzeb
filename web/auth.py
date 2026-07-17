@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import secrets
 import sqlite3
+import time
 
 from fastapi import Depends, HTTPException, Request, status
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -28,6 +29,19 @@ NAZEV_COOKIE = "session"
 MAX_STARI_SESSION_S = 7 * 24 * 3600  # 7 dní
 
 _SESSIONS: dict[str, int] = {}
+
+MAX_NEUSPESNYCH_POKUSU = 5
+DOBA_ZABLOKOVANI_S = 5 * 60  # 5 minut
+
+# Neúspěšné pokusy o přihlášení podle zadaného jména - in-memory, stejný
+# kompromis jako _SESSIONS výš (~3 účty, jeden proces, restart vynuluje).
+# Blokuje se podle JMÉNA, ne IP adresy - appka nemá před Caddy důvěryhodný
+# zdroj klientské IP a při hrstce účtů líp brání proti hádání hesla ke
+# konkrétnímu účtu. Vedlejší efekt: kdokoli může cíleně na pár minut
+# zablokovat cizí účet posláním 5 špatných hesel - přijatelné riziko pro
+# tenhle rozsah appky (viz audit).
+_NEUSPESNE_POKUSY: dict[str, int] = {}
+_ZABLOKOVANO_DO: dict[str, float] = {}
 
 
 def _serializer(tajny_klic: str) -> URLSafeTimedSerializer:
@@ -55,10 +69,39 @@ def rozbalit_token(podepsany: str, tajny_klic: str) -> str | None:
         return None
 
 
+def prihlaseni_zablokovano(jmeno: str) -> bool:
+    """True, když je JMÉNO (existující i neexistující - viz prihlasit)
+    momentálně zablokované kvůli MAX_NEUSPESNYCH_POKUSU špatným pokusům
+    po sobě."""
+    do = _ZABLOKOVANO_DO.get(jmeno)
+    return do is not None and time.monotonic() < do
+
+
+def _zaznamenat_neuspesny_pokus(jmeno: str) -> None:
+    pokusy = _NEUSPESNE_POKUSY.get(jmeno, 0) + 1
+    _NEUSPESNE_POKUSY[jmeno] = pokusy
+    if pokusy >= MAX_NEUSPESNYCH_POKUSU:
+        _ZABLOKOVANO_DO[jmeno] = time.monotonic() + DOBA_ZABLOKOVANI_S
+
+
+def _resetovat_pokusy(jmeno: str) -> None:
+    _NEUSPESNE_POKUSY.pop(jmeno, None)
+    _ZABLOKOVANO_DO.pop(jmeno, None)
+
+
 def prihlasit(conn: sqlite3.Connection, jmeno: str, heslo: str) -> Uzivatel | None:
+    """Vrátí Uzivatel při správném jménu/heslu, jinak None - i když je
+    jméno správné, ale momentálně zablokované (viz prihlaseni_zablokovano).
+    Počítadlo neúspěchů se vede podle zadaného jména bez ohledu na to,
+    jestli účet vůbec existuje, ať z chování (ne jen z hlášky, viz
+    web/app.py) nejde poznat, které jméno je platné."""
+    if prihlaseni_zablokovano(jmeno):
+        return None
     uzivatel = repo.uzivatel_podle_jmena(conn, jmeno)
     if uzivatel is None or not overit_heslo(heslo, uzivatel.heslo_hash):
+        _zaznamenat_neuspesny_pokus(jmeno)
         return None
+    _resetovat_pokusy(jmeno)
     return uzivatel
 
 

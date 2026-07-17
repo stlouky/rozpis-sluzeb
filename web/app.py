@@ -28,6 +28,7 @@ from .auth import (
     odhlasit,
     podepsat_token,
     prihlasit,
+    prihlaseni_zablokovano,
     vyzadovat_admina,
     vyzadovat_prihlaseni,
     vytvorit_session,
@@ -71,10 +72,19 @@ def login_odeslani(
 ):
     uzivatel = prihlasit(conn, jmeno, heslo)
     if uzivatel is None:
+        # Zablokované jméno se hlásí zvlášť (ne jako "špatné heslo") - jde
+        # to bezpečně, protože se blokuje stejně bez ohledu na to, jestli
+        # jméno vůbec existuje (viz web/auth.py:prihlaseni_zablokovano),
+        # takže tahle hláška sama o sobě neprozradí platnost jména.
+        chyba = (
+            "Příliš mnoho neúspěšných pokusů, zkuste to znovu za pár minut."
+            if prihlaseni_zablokovano(jmeno)
+            else "Špatné jméno nebo heslo."
+        )
         return sablony.TemplateResponse(
             request,
             "login.html",
-            {"chyba": "Špatné jméno nebo heslo."},
+            {"chyba": chyba},
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
