@@ -163,6 +163,14 @@ table.mrizka tfoot .radek-obsazeni td {
   border-top: 2px solid var(--barva-mrizky);
 }
 
+/* Pojistka proti přetečení do sousední buňky - i kdyby v budoucnu přibyl
+   delší typ nedostupnosti a někdo zapomněl zkratku (viz Bunka.text v
+   web/mrizka.py), text se aspoň ořízne, ne že rozbije layout mřížky. */
+table.mrizka .bunka {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Pořadí pravidel záměrně: .vikend nejdřív, barva směny/nedostupnosti
    (stejná specificita, pozdější pravidlo vyhrává) ji u obsazených buněk
    překryje - prázdný víkendový den zůstane šedý, stejně jako v PDF. */

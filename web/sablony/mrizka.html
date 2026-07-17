@@ -35,7 +35,7 @@
           <tr>
             <td class="sloupec-jmeno">{{ radek.jmeno }}</td>
             {% for bunka in radek.bunky -%}
-              <td class="bunka{% if mrizka.vikendy[loop.index0] %} vikend{% endif %}{% if bunka.trida %} {{ bunka.trida }}{% endif %}"{% if bunka.poznamka %} title="{{ bunka.poznamka }}"{% endif %}>{{ bunka.text }}</td>
+              <td class="bunka{% if mrizka.vikendy[loop.index0] %} vikend{% endif %}{% if bunka.trida %} {{ bunka.trida }}{% endif %}"{% if bunka.poznamka %} title="{{ bunka.poznamka }}"{% elif bunka.nazev_nedostupnosti %} title="{{ bunka.nazev_nedostupnosti }}"{% endif %}>{{ bunka.text }}</td>
             {% endfor -%}
             <td class="souhrn">{{ radek.pocet_d }}</td>
             <td class="souhrn">{{ radek.pocet_n }}</td>

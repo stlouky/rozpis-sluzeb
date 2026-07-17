@@ -96,6 +96,20 @@ def test_sestavit_mrizku_dov_a_jina_nedostupnost_se_lisi(conn):
     assert bunka_nem.text == "NEM"  # ostatní nedostupnosti = text typu
 
 
+def test_sestavit_mrizku_pozadavek_se_zkrati_na_poz(conn):
+    # POZADAVEK je jediný typ delší než 3 znaky - v buňce by přetékal a
+    # překrýval sousední (viz nález), musí se zkrátit stejně jako v legendě
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 5), date(2026, 8, 5), "POZADAVEK")
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    bunka = mrizka.radky[0].bunky[4]  # 5.8.
+
+    assert bunka.nedostupnost == "POZADAVEK"
+    assert bunka.text == "POZ"
+    assert bunka.nazev_nedostupnosti == "Požadavek"
+
+
 def test_sestavit_mrizku_poznamka_jen_kdyz_je_admin(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     repo.pridat_nedostupnost(
@@ -132,6 +146,7 @@ def klient(tmp_path):
     repo.pridat_nedostupnost(
         conn, id_, date(2026, 8, 3), date(2026, 8, 3), "OST", poznamka="tajna-poznamka-xyz"
     )
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 12), date(2026, 8, 12), "POZADAVEK")
     conn.close()
 
     app.state.cesta_db = cesta_db
@@ -198,6 +213,15 @@ def test_admin_ma_navigaci_na_jiny_mesic(klient):
     odpoved = klient.get("/rozpis")
     assert "předchozí" in odpoved.text
     assert "další" in odpoved.text
+
+
+def test_rozpis_zkracuje_pozadavek_na_poz(klient):
+    # nález: POZADAVEK se dřív vypisoval celý a přetékal mimo buňku
+    _prihlasit(klient, "admin", "tajneheslo")
+    odpoved = klient.get("/rozpis?mesic=2026-08")
+    assert ">POZ<" in odpoved.text
+    assert "POZADAVEK" not in odpoved.text
+    assert 'title="Požadavek"' in odpoved.text
 
 
 def test_rozpis_zobrazuje_radek_obsazeni(klient):
