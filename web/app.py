@@ -14,13 +14,14 @@ from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Form, Request, status
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from db import repository as repo
 from db.cesta import vychozi_cesta_db
-from db.models import Uzivatel
+from db.models import Uzivatel, Zamestnanec
 
 from .auth import (
     MAX_STARI_SESSION_S,
@@ -167,3 +168,160 @@ def rozpis_mesice(
 @app.get("/admin")
 def admin_uvod(request: Request, uzivatel: Uzivatel = Depends(vyzadovat_admina)):
     return sablony.TemplateResponse(request, "admin.html", {"uzivatel": uzivatel})
+
+
+# --- úkol 4: admin - správa zaměstnanců ---
+
+STITEK_FYZICKA_VYPOMOC = "fyzicka_vypomoc"
+
+
+@app.get("/admin/zamestnanci")
+def admin_zamestnanci_seznam(
+    request: Request,
+    vsichni: bool = False,
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    zamestnanci = (
+        repo.vsichni_zamestnanci(conn)
+        if vsichni
+        else repo.aktivni_zamestnanci(conn, date.today())
+    )
+    return sablony.TemplateResponse(
+        request,
+        "admin_zamestnanci.html",
+        {"uzivatel": uzivatel, "zamestnanci": zamestnanci, "vsichni": vsichni},
+    )
+
+
+@app.get("/admin/zamestnanci/novy")
+def admin_zamestnanec_novy_formular(
+    request: Request,
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    return sablony.TemplateResponse(
+        request,
+        "admin_zamestnanec_novy.html",
+        {
+            "uzivatel": uzivatel,
+            "chyba": None,
+            "dnes": date.today().isoformat(),
+            # Možní partneři pro neslučitelnou dvojici - jen dnes aktivní,
+            # ať formulář nenabízí dávno odešlé lidi (viz úkol 4 zadání:
+            # "při nástupu nového člověka se vše nastaví na jednom místě").
+            "mozni_partneri": repo.aktivni_zamestnanci(conn, date.today()),
+        },
+    )
+
+
+@app.post("/admin/zamestnanci/novy")
+def admin_zamestnanec_novy_odeslani(
+    request: Request,
+    jmeno: str = Form(...),
+    aktivni_od: date = Form(...),
+    max_smen_mesic: str = Form(""),
+    fyzicka_vypomoc: bool = Form(False),
+    dvojice_s: list[int] = Form([]),
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    if not jmeno.strip():
+        return sablony.TemplateResponse(
+            request,
+            "admin_zamestnanec_novy.html",
+            {
+                "uzivatel": uzivatel,
+                "chyba": "Jméno je povinné.",
+                "dnes": date.today().isoformat(),
+                "mozni_partneri": repo.aktivni_zamestnanci(conn, date.today()),
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    stitky = [STITEK_FYZICKA_VYPOMOC] if fyzicka_vypomoc else []
+    strop = int(max_smen_mesic) if max_smen_mesic.strip() else None
+    novy_id = repo.pridat_zamestnance(conn, jmeno.strip(), aktivni_od, stitky, strop)
+    for partner_id in dvojice_s:
+        repo.pridat_dvojici(conn, novy_id, partner_id)
+
+    return RedirectResponse(url="/admin/zamestnanci", status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _zamestnanec_nebo_404(conn: sqlite3.Connection, zamestnanec_id: int) -> Zamestnanec:
+    zamestnanec = repo.zamestnanec_podle_id(conn, zamestnanec_id)
+    if zamestnanec is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zaměstnanec neexistuje")
+    return zamestnanec
+
+
+@app.get("/admin/zamestnanci/{zamestnanec_id}/upravit")
+def admin_zamestnanec_upravit_formular(
+    request: Request,
+    zamestnanec_id: int,
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    zamestnanec = _zamestnanec_nebo_404(conn, zamestnanec_id)
+    return sablony.TemplateResponse(
+        request,
+        "admin_zamestnanec_upravit.html",
+        {
+            "uzivatel": uzivatel,
+            "zamestnanec": zamestnanec,
+            "ma_smenu": repo.ma_nejakou_smenu(conn, zamestnanec_id),
+            "chyba": None,
+        },
+    )
+
+
+@app.post("/admin/zamestnanci/{zamestnanec_id}/upravit-jmeno")
+def admin_zamestnanec_upravit_jmeno(
+    zamestnanec_id: int,
+    jmeno: str = Form(...),
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    _zamestnanec_nebo_404(conn, zamestnanec_id)
+    if jmeno.strip():
+        repo.opravit_jmeno_zamestnance(conn, zamestnanec_id, jmeno.strip())
+    return RedirectResponse(
+        url=f"/admin/zamestnanci/{zamestnanec_id}/upravit", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/admin/zamestnanci/{zamestnanec_id}/deaktivovat")
+def admin_zamestnanec_deaktivovat(
+    zamestnanec_id: int,
+    aktivni_do: date = Form(...),
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    _zamestnanec_nebo_404(conn, zamestnanec_id)
+    repo.deaktivovat_zamestnance(conn, zamestnanec_id, aktivni_do)
+    return RedirectResponse(url="/admin/zamestnanci", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/zamestnanci/{zamestnanec_id}/smazat")
+def admin_zamestnanec_smazat(
+    request: Request,
+    zamestnanec_id: int,
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    zamestnanec = _zamestnanec_nebo_404(conn, zamestnanec_id)
+    try:
+        repo.smazat_zamestnance(conn, zamestnanec_id)
+    except ValueError as e:
+        return sablony.TemplateResponse(
+            request,
+            "admin_zamestnanec_upravit.html",
+            {
+                "uzivatel": uzivatel,
+                "zamestnanec": zamestnanec,
+                "ma_smenu": repo.ma_nejakou_smenu(conn, zamestnanec_id),
+                "chyba": str(e),
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    return RedirectResponse(url="/admin/zamestnanci", status_code=status.HTTP_303_SEE_OTHER)

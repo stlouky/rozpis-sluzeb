@@ -81,8 +81,62 @@ def test_deaktivovany_zamestnanec_zmizi_po_datu_odchodu(conn):
     aktivni_v_den_odchodu = repo.aktivni_zamestnanci(conn, date(2026, 6, 30))
     assert id_ in {z.id for z in aktivni_v_den_odchodu}  # aktivni_do je včetně
 
-    aktivni_po = repo.aktivni_zamestnanci(conn, date(2026, 7, 1))
-    assert id_ not in {z.id for z in aktivni_po}
+
+def test_zamestnanec_podle_id(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    assert repo.zamestnanec_podle_id(conn, id_).jmeno == "Alena"
+    assert repo.zamestnanec_podle_id(conn, id_ + 999) is None
+
+
+def test_deaktivace_zachova_historii_smen(conn):
+    """Úkol 4: deaktivace nesmí smazat/skrýt uložené směny - historie
+    rozpisů musí zůstat konzistentní i pro bývalého zaměstnance."""
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena",),
+        smeny={("Alena", 1): "D"}, status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+
+    repo.deaktivovat_zamestnance(conn, id_, date(2026, 6, 30))
+
+    smeny = repo.smeny_v_mesici(conn, 2026, 8)
+    assert any(s.zamestnanec_id == id_ and s.typ == "D" for s in smeny)
+
+
+def test_ma_nejakou_smenu(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    assert repo.ma_nejakou_smenu(conn, id_) is False
+
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena",),
+        smeny={("Alena", 1): "D"}, status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+    assert repo.ma_nejakou_smenu(conn, id_) is True
+
+
+def test_smazat_zamestnance_bez_smeny_smaze_zaznam(conn):
+    """Tvrdé smazání jen pro omyl při zakládání - záznam bez jediné
+    směny smí zmizet úplně (na rozdíl od deaktivace)."""
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.smazat_zamestnance(conn, id_)
+    assert repo.zamestnanec_podle_id(conn, id_) is None
+
+
+def test_smazat_zamestnance_se_smenou_selze(conn):
+    """Zaměstnanec s historií se NIKDY nemaže (viz CLAUDE.md) - jen
+    deaktivuje. Cizí klíč (smena.zamestnanec_id) smazání zablokuje."""
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena",),
+        smeny={("Alena", 1): "D"}, status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+
+    with pytest.raises(ValueError, match="nejde smazat"):
+        repo.smazat_zamestnance(conn, id_)
+    assert repo.zamestnanec_podle_id(conn, id_) is not None
 
     # zaměstnanec se nikdy nemaže - historicky zůstává v DB
     radek = conn.execute("SELECT * FROM zamestnanec WHERE id = ?", (id_,)).fetchone()

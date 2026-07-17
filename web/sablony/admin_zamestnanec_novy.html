@@ -1,0 +1,38 @@
+{% extends "_layout.html" %}
+{% block titulek %}Nový zaměstnanec – Rozpis služeb{% endblock %}
+{% block obsah %}
+{% include "_hlavicka.html" %}
+<main>
+  <h1>Nový zaměstnanec</h1>
+  {% if chyba %}<p class="chyba">{{ chyba }}</p>{% endif %}
+  <form method="post" action="/admin/zamestnanci/novy" class="formular">
+    <label>Jméno
+      <input type="text" name="jmeno" required autofocus>
+    </label>
+    <label>Aktivní od
+      <input type="date" name="aktivni_od" value="{{ dnes }}" required>
+    </label>
+    <label>Individuální strop směn/měsíc (nepovinné, jinak platí společný z nastavení)
+      <input type="number" name="max_smen_mesic" min="0">
+    </label>
+    <label class="checkbox">
+      <input type="checkbox" name="fyzicka_vypomoc">
+      Fyzická výpomoc (štítek)
+    </label>
+
+    {% if mozni_partneri %}
+    <fieldset>
+      <legend>Neslučitelná dvojice s (nepovinné - spolu smí, jen když to jinak nejde)</legend>
+      {% for p in mozni_partneri %}
+        <label class="checkbox">
+          <input type="checkbox" name="dvojice_s" value="{{ p.id }}">
+          {{ p.jmeno }}
+        </label>
+      {% endfor %}
+    </fieldset>
+    {% endif %}
+
+    <button type="submit">Přidat</button>
+  </form>
+</main>
+{% endblock %}

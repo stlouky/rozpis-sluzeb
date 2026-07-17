@@ -1,0 +1,38 @@
+{% extends "_layout.html" %}
+{% block titulek %}{{ zamestnanec.jmeno }} – Rozpis služeb{% endblock %}
+{% block obsah %}
+{% include "_hlavicka.html" %}
+<main>
+  <h1>{{ zamestnanec.jmeno }}</h1>
+  {% if chyba %}<p class="chyba">{{ chyba }}</p>{% endif %}
+
+  <h2>Oprava jména</h2>
+  <form method="post" action="/admin/zamestnanci/{{ zamestnanec.id }}/upravit-jmeno" class="formular">
+    <label>Jméno
+      <input type="text" name="jmeno" value="{{ zamestnanec.jmeno }}" required>
+    </label>
+    <button type="submit">Uložit jméno</button>
+  </form>
+
+  <h2>Odchod</h2>
+  {% if zamestnanec.aktivni_do %}
+    <p>Aktivní do {{ zamestnanec.aktivni_do }}.</p>
+  {% endif %}
+  <form method="post" action="/admin/zamestnanci/{{ zamestnanec.id }}/deaktivovat" class="formular">
+    <label>Poslední aktivní den
+      <input type="date" name="aktivni_do" required>
+    </label>
+    <button type="submit">Deaktivovat</button>
+  </form>
+
+  {% if not ma_smenu %}
+  <h2>Smazání</h2>
+  <p>Zaměstnanec nemá žádnou uloženou směnu - jde smazat úplně (jen pro
+     omyl při zakládání, jinak vždy deaktivace výš).</p>
+  <form method="post" action="/admin/zamestnanci/{{ zamestnanec.id }}/smazat"
+        onsubmit="return confirm('Opravdu smazat tento záznam? Nejde vrátit zpět.')">
+    <button type="submit">Smazat záznam</button>
+  </form>
+  {% endif %}
+</main>
+{% endblock %}

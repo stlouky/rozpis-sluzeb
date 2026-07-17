@@ -87,6 +87,70 @@ button {
   border: 1px solid var(--barva-ramecek);
 }
 
+.hlavicka nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.hlavicka nav a {
+  color: var(--barva-akcent);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+/* --- admin: správa zaměstnanců (úkol 4) --- */
+
+.admin-menu {
+  list-style: none;
+  padding: 0;
+}
+
+.admin-menu a {
+  color: var(--barva-akcent);
+  text-decoration: none;
+  font-size: 1.05rem;
+}
+
+table.seznam {
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+table.seznam th,
+table.seznam td {
+  border: 1px solid var(--barva-mrizky);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+/* Stejný tvar formuláře jako .prihlaseni (login) - konzistentní vzhled
+   napříč appkou, jen bez centrování na celou stránku. */
+.formular {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 24rem;
+  margin-bottom: 1.5rem;
+}
+
+.formular label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.formular label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.formular fieldset {
+  border: 1px solid var(--barva-ramecek);
+  border-radius: 4px;
+}
+
 /* --- mřížka měsíce (úkol 3) --- */
 
 .mesic-nav {

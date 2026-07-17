@@ -185,6 +185,40 @@ def zamestnanec_podle_jmena(conn: sqlite3.Connection, jmeno: str) -> Zamestnanec
     return _zamestnanec_z_radku(radek) if radek else None
 
 
+def zamestnanec_podle_id(conn: sqlite3.Connection, zamestnanec_id: int) -> Zamestnanec | None:
+    radek = conn.execute(
+        "SELECT * FROM zamestnanec WHERE id = ?", (zamestnanec_id,)
+    ).fetchone()
+    return _zamestnanec_z_radku(radek) if radek else None
+
+
+def ma_nejakou_smenu(conn: sqlite3.Connection, zamestnanec_id: int) -> bool:
+    """True, pokud má zaměstnanec aspoň jednu uloženou směnu (v jakémkoli
+    měsíci) - řídí, jestli má admin ve web UI vůbec nabídnout tvrdé
+    smazání (viz smazat_zamestnance), ne jen jako informace navíc."""
+    radek = conn.execute(
+        "SELECT 1 FROM smena WHERE zamestnanec_id = ? LIMIT 1", (zamestnanec_id,)
+    ).fetchone()
+    return radek is not None
+
+
+def smazat_zamestnance(conn: sqlite3.Connection, zamestnanec_id: int) -> None:
+    """Tvrdé smazání záznamu - jen pro omyl při zakládání (viz
+    db/schema.sql úvodní komentář: zaměstnanci se JINAK nikdy nemažou,
+    odchod řeší deaktivovat_zamestnance). Cizí klíče (PRAGMA
+    foreign_keys=ON, viz pripojit()) smazání samy zablokují, pokud na
+    zaměstnance odkazuje směna/nedostupnost/dvojice - tady se to jen
+    převádí na čitelnou chybu pro volajícího (web/CLI)."""
+    try:
+        conn.execute("DELETE FROM zamestnanec WHERE id = ?", (zamestnanec_id,))
+    except sqlite3.IntegrityError as e:
+        raise ValueError(
+            f"Zaměstnance (id={zamestnanec_id}) nejde smazat - existují na něj "
+            f"navázané záznamy (směna/nedostupnost/dvojice). Použij deaktivaci."
+        ) from e
+    conn.commit()
+
+
 def vsichni_zamestnanci(conn: sqlite3.Connection) -> list[Zamestnanec]:
     """Úplně všichni zaměstnanci vč. bývalých (na rozdíl od aktivni_zamestnanci*
     níž) - pro administraci ("i bývalí", úkol 4) a párování jmen při importu."""
