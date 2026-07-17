@@ -42,9 +42,10 @@ vyžádání jako obvykle (další na řadě je Úkol 4).
 | 6 | `1729666` | admin: VYGENEROVAT - tlačítko na mřížce (měsíc + profil normalni/krizovy) → solver → uložení → potvrzení na mřížce; vždy pevný `random_seed` (num_search_workers=1, deterministické); nesplnitelnost se ukáže na mřížce s diagnostikou + "Zkusit krizový profil", HTTP 200 ne 500 |
 | 7 | `23ebbce` | pohled pro přepis do Cygnusu (`/rozpis/prepis`) - seznam po zaměstnancích, jen dny s čím přepsat, velké písmo, klikací odškrtávání (jen vizuální); `/rozpis/pdf` - tenká route nad hotovým `vystup.pdf.vygenerovat_pdf` |
 | — | `5c8ef26` | oprava (audit appky): PDF popiska "Řešení: ULOZENO" na nástěnce nahrazena vynecháním věty pro neřešená data; dočasný PDF soubor se uklidí i při výjimce |
-| 8 | `dd428dd` | admin: ruční úpravy - klik na nezamčenou buňku cykluje volno→D→N→volno (`POST /rozpis/bunka/{id}/{datum}`); nový `solver/validace.py` (validovat_rozpis) kontroluje tvrdá pravidla na hotovém rozpisu a jen OZNAČÍ porušení (neblokuje uložení - realita > solver); `Schedule.zamcene` nové pole, vyplňuje ho jen `schedule_z_db` |
+| 8 | `dd428dd` | admin: ruční úpravy - klik na nezamčenou buňku cykluje volno→D→N→volno (`POST /rozpis/bunka/{id}/{datum}`); nový `solver/validace.py` (validovat_rozpis) kontroluje tvrdá pravidla na hotovém rozpisu a jen OZNAČÍ porušení (neblokuje uložení - realita > solver); `Schedule.zamcene` nové pole, vyplňuje ho jen `schedule_z_db`. **UI editace buňky přepracováno v Úkolu 9 níž** - zámečky v buňkách i tenhle jednoduchý cyklus jsou pryč. |
+| 9 | `3d840d9` | zamykání + přegenerování zbytku + diff - solver bere zamčené směny jako pevný vstup (`Config.pevne_smeny`), takže "vygenerovat" a "přegenerovat zbytek" jsou fakticky stejná operace; `POST /rozpis/generovat` zamkne minulost, spočítá diff proti uloženému stavu, neprázdný diff čeká na potvrzení (`/rozpis/generovat/potvrdit`); nesplnitelnost po zamčení nabídne "Odemknout budoucí zamčené směny". **Ruční úprava buňky přepracována na přání** (viz níž) - žádné zámečky/rozsah v UI, zatržítko "Povolit ruční úpravu" + JS cyklus volno/D/N/DOV/OST/NEM potvrzený Enterem, který rovnou přegeneruje a uloží zbytek měsíce OD upraveného dne (jiní lidé ten den zůstávají volní, aby šlo doplnit náhradu po odebrání někoho ze směny) |
 
-**Testy:** 312, celá sada zelená. Spouštět vždy
+**Testy:** 352, celá sada zelená. Spouštět vždy
 `.venv/bin/python -m pytest -q` (běží ~3–4 min kvůli solver testům).
 
 ## Reálný stav dat (`data/rozpis.db`, srpen 2026)
@@ -77,9 +78,9 @@ Systematicky vyzkoušeno, co by pomohlo:
 
 ## Rozdělané / nezačaté úkoly
 
-- **Úkol 9** — zamykání + přegenerování zbytku + diff — DALŠÍ NA ŘADĚ, nezačato.
-- Úkol 9b — samoobslužné podávání požadavků (zapsáno v
-  `zadani-faze3-web.md`, revize dřívějšího "NEIMPLEMENTUJE SE") — nezačato.
+- **Úkol 9b** — samoobslužné podávání požadavků (zapsáno v
+  `zadani-faze3-web.md`, revize dřívějšího "NEIMPLEMENTUJE SE") — DALŠÍ
+  NA ŘADĚ, nezačato (volitelné, ne blokující - hlavní tok 1-9 je hotový).
 - Úkol 10 (deploy) — připraveno v `DEPLOY.md` (lokální, negitované),
   čeká na úkoly 1–9(b) hotové lokálně.
 
@@ -172,6 +173,29 @@ předem" než na ostrá data.
   nic, co by nahled neviděl už na mřížce (žádná poznámka), a "PDF na
   nástěnku" dává smysl i pro čtení, ne jen generování. Pokud se ukáže,
   že to má být jen pro admina, stačí přidat `Depends(vyzadovat_admina)`.
+- **Úkol 9 - ruční úprava buňky VYŽADUJE JS** (na rozdíl od zbytku appky,
+  kde JS jen vylepšuje - "Vanilla JS jen kde nutný" ze zadání, tady je
+  fakt nutný): klik cykluje hodnotu jen v prohlížeči, Enter teprve pošle
+  zvolenou hodnotu na server. Bez JS zůstane zatržítko "Povolit ruční
+  úpravu" bez efektu (tlačítka jsou `type="button" disabled`, ne
+  `type="submit"`) - úprava jde bez JS jen přes CLI (repo funkce
+  `nastavit_smenu`/`nastavit_nedostupnost_jednoho_dne` existují, CLI
+  příkaz zatím ne).
+- **Úkol 9 - "odemknout konfliktní směny" zjednodušeno:** zadání chce
+  radu při nesplnitelnosti po zamčení. Přesně určit, KTERÁ zamčená
+  směna kolizi způsobila, by vyžadovalo zkoušet kombinace (postupně
+  odemykat a řešit znovu) - místo toho `/rozpis/generovat/odemknout-a-zkusit`
+  natvrdo odemkne VŠECHNY budoucí (datum > dnes) zamčené směny v měsíci a
+  zkusí to znovu. Funguje to (otestováno), ale je to pragmatická
+  náhrada, ne přesná diagnostika.
+- **Úkol 9 design se změnil za chodu** (na přání, po prvním hotovém
+  návrhu): původně zámečky v každé buňce + samostatný formulář
+  "zamknout/odemknout rozsah dat" (`POST /rozpis/zamek/...`,
+  `/rozpis/zamek-rozsah`) - obojí smazáno, nahrazeno zatržítkem
+  "Povolit ruční úpravu" + rozšířeným cyklem (D/N/volno/DOV/OST/NEM) a
+  automatickým přegenerováním zbytku měsíce po každé ruční úpravě.
+  Automatické zamykání minulosti (`zamknout_minulost`) a `Config.pevne_smeny`
+  v solveru zůstaly beze změny - jen UI pro ruční (od)mykání zmizelo.
 
 ## Zavedené konvence z průběhu (nejsou v zadání explicitně, ale ustálily se)
 
