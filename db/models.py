@@ -32,6 +32,16 @@ class Nedostupnost:
 
 
 @dataclass(frozen=True)
+class Smena:
+    id: int
+    zamestnanec_id: int
+    datum: date
+    typ: str  # 'D' | 'N'
+    locked: bool
+    stav: str | None
+
+
+@dataclass(frozen=True)
 class Dvojice:
     id: int
     zamestnanec_a_id: int

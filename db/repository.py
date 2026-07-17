@@ -6,11 +6,14 @@ nastavením aktivni_do, historie rozpisů tak zůstává konzistentní.
 
 from __future__ import annotations
 
+import calendar
 import sqlite3
 from datetime import date
 from pathlib import Path
 
-from .models import Dvojice, Nedostupnost, Uzivatel, Zamestnanec
+from solver.schedule import Schedule
+
+from .models import Dvojice, Nedostupnost, Smena, Uzivatel, Zamestnanec
 
 SCHEMA_CESTA = Path(__file__).resolve().parent / "schema.sql"
 
@@ -68,6 +71,17 @@ def _nedostupnost_z_radku(radek: sqlite3.Row) -> Nedostupnost:
         typ=radek["typ"],
         poznamka=radek["poznamka"],
         zakazana_smena=radek["zakazana_smena"],
+    )
+
+
+def _smena_z_radku(radek: sqlite3.Row) -> Smena:
+    return Smena(
+        id=radek["id"],
+        zamestnanec_id=radek["zamestnanec_id"],
+        datum=_na_datum(radek["datum"]),
+        typ=radek["typ"],
+        locked=bool(radek["locked"]),
+        stav=radek["stav"],
     )
 
 
@@ -193,6 +207,84 @@ def nedostupnosti_v_obdobi(conn: sqlite3.Connection, od: date, do: date) -> list
         (do.isoformat(), od.isoformat()),
     ).fetchall()
     return [_nedostupnost_z_radku(r) for r in radky]
+
+
+# --- směny ---
+
+def _smazat_nezamcene(conn: sqlite3.Connection, od: date, do: date) -> None:
+    """Bez commitu - interní stavební kámen pro ulozit_rozpis() a
+    smazat_nezamcene_v_obdobi(), ať se v jedné transakci nedělá zbytečně
+    víc commitů."""
+    conn.execute(
+        "DELETE FROM smena WHERE datum >= ? AND datum <= ? AND locked = 0",
+        (od.isoformat(), do.isoformat()),
+    )
+
+
+def smazat_nezamcene_v_obdobi(conn: sqlite3.Connection, od: date, do: date) -> None:
+    """Smaže nezamčené směny v intervalu [od, do] (včetně) - zamčené
+    zůstávají netknuté. Základ pro přegenerování zbytku měsíce (úkol 9)."""
+    _smazat_nezamcene(conn, od, do)
+    conn.commit()
+
+
+def smeny_v_mesici(conn: sqlite3.Connection, rok: int, mesic: int) -> list[Smena]:
+    prvni_den = date(rok, mesic, 1)
+    posledni_den = date(rok, mesic, calendar.monthrange(rok, mesic)[1])
+    radky = conn.execute(
+        "SELECT * FROM smena WHERE datum >= ? AND datum <= ? ORDER BY datum, zamestnanec_id",
+        (prvni_den.isoformat(), posledni_den.isoformat()),
+    ).fetchall()
+    return [_smena_z_radku(r) for r in radky]
+
+
+def zamknout_smeny(conn: sqlite3.Connection, seznam_id: list[int]) -> None:
+    conn.executemany("UPDATE smena SET locked = 1 WHERE id = ?", [(i,) for i in seznam_id])
+    conn.commit()
+
+
+def odemknout_smeny(conn: sqlite3.Connection, seznam_id: list[int]) -> None:
+    conn.executemany("UPDATE smena SET locked = 0 WHERE id = ?", [(i,) for i in seznam_id])
+    conn.commit()
+
+
+def ulozit_rozpis(conn: sqlite3.Connection, schedule: Schedule) -> None:
+    """Uloží vygenerovaný Schedule (solver/schedule.py) do DB: smaže
+    nezamčené směny daného měsíce a zapíše nové. Zamčené směny se NIKDY
+    nepřepíšou ani nesmažou - pokud schedule pro zamčený (zaměstnanec,
+    den) přináší jinou hodnotu, tenhle záznam se prostě přeskočí (locked
+    vyhrává, viz CLAUDE.md klíčové workflow: zamknout minulost/odpracované
+    směny, přegenerovat jen zbytek).
+    """
+    prvni_den = date(schedule.rok, schedule.mesic, 1)
+    posledni_den = date(schedule.rok, schedule.mesic, schedule.pocet_dni)
+
+    _smazat_nezamcene(conn, prvni_den, posledni_den)
+
+    zamestnanec_id_podle_jmena = {
+        radek["jmeno"]: radek["id"]
+        for radek in conn.execute("SELECT id, jmeno FROM zamestnanec").fetchall()
+    }
+    zamcene_dny = {
+        (radek["zamestnanec_id"], radek["datum"])
+        for radek in conn.execute(
+            "SELECT zamestnanec_id, datum FROM smena WHERE locked = 1 AND datum >= ? AND datum <= ?",
+            (prvni_den.isoformat(), posledni_den.isoformat()),
+        ).fetchall()
+    }
+
+    for (jmeno, den), typ in schedule.smeny.items():
+        zamestnanec_id = zamestnanec_id_podle_jmena.get(jmeno)
+        if zamestnanec_id is None:
+            continue  # neznámé jméno - nemělo by nastat, radši nezahodit zbytek zápisu
+        datum = date(schedule.rok, schedule.mesic, den).isoformat()
+        if (zamestnanec_id, datum) in zamcene_dny:
+            continue  # locked směna se nikdy nepřepisuje
+        conn.execute(
+            "INSERT INTO smena (zamestnanec_id, datum, typ) VALUES (?, ?, ?)",
+            (zamestnanec_id, datum, typ),
+        )
+    conn.commit()
 
 
 # --- dvojice ---

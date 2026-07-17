@@ -8,6 +8,7 @@ import pytest
 from db import repository as repo
 from db.bridge import config_pro_mesic
 from solver.core import generate_schedule
+from solver.schedule import Schedule
 
 ZBYVAJICI_11 = [
     "Bedřich", "Cyril", "Dana", "Emil", "Frantiska", "Gustav",
@@ -352,6 +353,109 @@ def test_zmenit_heslo(conn):
 def test_uzivatel_role_musi_byt_admin_nebo_nahled(conn):
     with pytest.raises(sqlite3.IntegrityError):
         repo.vytvorit_uzivatele(conn, "spatna_role", "hash", "superadmin")
+
+
+def test_ulozit_rozpis_zapise_smeny(conn):
+    id_alena = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    id_bedrich = repo.pridat_zamestnance(conn, "Bedřich", date(2020, 1, 1))
+
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena", "Bedřich"),
+        smeny={("Alena", 1): "D", ("Bedřich", 1): "N", ("Alena", 2): "D"},
+        status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+
+    smeny = {(s.zamestnanec_id, s.datum): s.typ for s in repo.smeny_v_mesici(conn, 2026, 8)}
+    assert smeny == {
+        (id_alena, date(2026, 8, 1)): "D",
+        (id_bedrich, date(2026, 8, 1)): "N",
+        (id_alena, date(2026, 8, 2)): "D",
+    }
+
+
+def test_ulozit_rozpis_prepise_nezamcene_pri_dalsim_volani(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    prvni = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "D"},
+                      status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, prvni)
+
+    druhy = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "N"},
+                      status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, druhy)
+
+    smeny = repo.smeny_v_mesici(conn, 2026, 8)
+    assert len(smeny) == 1
+    assert smeny[0].typ == "N"
+
+
+def test_ulozit_rozpis_nikdy_neprepise_zamcenou_smenu(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    puvodni = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "D"},
+                        status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, puvodni)
+
+    zamcena = repo.smeny_v_mesici(conn, 2026, 8)[0]
+    repo.zamknout_smeny(conn, [zamcena.id])
+
+    novy = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "N"},
+                     status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, novy)
+
+    smeny = repo.smeny_v_mesici(conn, 2026, 8)
+    assert len(smeny) == 1
+    assert smeny[0].typ == "D"  # zůstala původní, ne přepsaná na N z nového rozpisu
+    assert smeny[0].locked is True
+
+
+def test_zamknout_a_odemknout_smeny(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "D"},
+                         status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, schedule)
+    smena_id = repo.smeny_v_mesici(conn, 2026, 8)[0].id
+
+    assert repo.smeny_v_mesici(conn, 2026, 8)[0].locked is False
+
+    repo.zamknout_smeny(conn, [smena_id])
+    assert repo.smeny_v_mesici(conn, 2026, 8)[0].locked is True
+
+    repo.odemknout_smeny(conn, [smena_id])
+    assert repo.smeny_v_mesici(conn, 2026, 8)[0].locked is False
+
+
+def test_smazat_nezamcene_v_obdobi_zachova_zamcene(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena",),
+        smeny={("Alena", 1): "D", ("Alena", 2): "N"},
+        status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+    id_prvniho = next(
+        s.id for s in repo.smeny_v_mesici(conn, 2026, 8) if s.datum == date(2026, 8, 1)
+    )
+    repo.zamknout_smeny(conn, [id_prvniho])
+
+    repo.smazat_nezamcene_v_obdobi(conn, date(2026, 8, 1), date(2026, 8, 31))
+
+    zbyle = repo.smeny_v_mesici(conn, 2026, 8)
+    assert len(zbyle) == 1
+    assert zbyle[0].datum == date(2026, 8, 1)
+    assert zbyle[0].locked is True
+
+
+def test_smeny_v_mesici_neobsahuje_jiny_mesic(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    srpen = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 31): "D"},
+                      status="OPTIMAL", cas_reseni=0.1)
+    zari = Schedule(rok=2026, mesic=9, jmena=("Alena",), smeny={("Alena", 1): "N"},
+                     status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, srpen)
+    repo.ulozit_rozpis(conn, zari)
+
+    assert len(repo.smeny_v_mesici(conn, 2026, 8)) == 1
+    assert len(repo.smeny_v_mesici(conn, 2026, 9)) == 1
 
 
 def test_zrusit_nedostupnost(conn):

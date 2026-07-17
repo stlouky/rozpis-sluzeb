@@ -1,7 +1,7 @@
 """Datová vrstva nad SQLite (fáze 2) - repository pattern, čisté sqlite3."""
 
 from .bridge import config_pro_mesic
-from .models import Dvojice, Nedostupnost, Uzivatel, Zamestnanec
+from .models import Dvojice, Nedostupnost, Smena, Uzivatel, Zamestnanec
 from .repository import (
     aktivni_zamestnanci,
     aktivni_zamestnanci_v_obdobi,
@@ -9,15 +9,20 @@ from .repository import (
     dvojice_vsechny,
     inicializovat_schema,
     nedostupnosti_v_obdobi,
+    odemknout_smeny,
     opravit_jmeno_zamestnance,
     pridat_dvojici,
     pridat_nedostupnost,
     pridat_zamestnance,
     pripojit,
     pripojit_a_inicializovat,
+    smazat_nezamcene_v_obdobi,
+    smeny_v_mesici,
+    ulozit_rozpis,
     uzivatel_podle_id,
     uzivatel_podle_jmena,
     vytvorit_uzivatele,
+    zamknout_smeny,
     zmenit_heslo,
     zrusit_nedostupnost,
 )
@@ -26,6 +31,7 @@ __all__ = [
     "config_pro_mesic",
     "Zamestnanec",
     "Nedostupnost",
+    "Smena",
     "Dvojice",
     "Uzivatel",
     "pripojit",
@@ -39,6 +45,11 @@ __all__ = [
     "pridat_nedostupnost",
     "zrusit_nedostupnost",
     "nedostupnosti_v_obdobi",
+    "ulozit_rozpis",
+    "smeny_v_mesici",
+    "zamknout_smeny",
+    "odemknout_smeny",
+    "smazat_nezamcene_v_obdobi",
     "pridat_dvojici",
     "dvojice_vsechny",
     "vytvorit_uzivatele",
