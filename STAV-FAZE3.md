@@ -78,14 +78,24 @@ Systematicky vyzkoušeno, co by pomohlo:
 - Úkol 10 (deploy) — připraveno v `DEPLOY.md` (lokální, negitované),
   čeká na úkoly 1–9(b) hotové lokálně.
 
-## ⚠️ Nedokončená migrace na `data/rozpis.db` (po Úkolu 5)
+## ✅ Migrace na `data/rozpis.db` provedena (17.7.2026)
 
 Úkol 5 změnil `db/schema.sql` dvakrát: `nedostupnost.typ` CHECK rozšířen
 o `SVZ` (vyžaduje přetvoření tabulky, ne ADD COLUMN) a přibyla nová
 tabulka `nastaveni`. `inicializovat_schema()` se spustí JEN při založení
 nového DB souboru (viz `pripojit_a_inicializovat`) — na existující
-`data/rozpis.db` se žádná změna schématu neprojeví sama, dokud se ručně
-nespustí:
+`data/rozpis.db` se žádná změna schématu neprojevila sama, proto se
+ručně spustilo (SQL níž, přesně jak zapsáno) — ověřeno: `PRAGMA
+integrity_check`/`foreign_key_check` OK, počet řádků `nedostupnost`
+před/po sedí (19/19), `overit_databazi` i `db.cli seznam-zamestnancu`
+proti reálné DB projdou. Záloha před migrací:
+`data/rozpis.db.pred-migraci-svz-nastaveni.bak` (gitignorovaná stejně
+jako `data/rozpis.db`). `nastaveni` je zatím prázdná (žádný profil
+neuložen) - generování dál padá na `config.yaml`, dokud admin profil
+poprvé neuloží přes `/admin/nastaveni`.
+
+Použité SQL (pro referenci/další prostředí, např. produkční server po
+úkolu 10):
 
 ```sql
 -- 1) nedostupnost.typ: přidat SVZ do CHECK (přetvoření tabulky)
@@ -119,21 +129,23 @@ CREATE TABLE IF NOT EXISTS nastaveni (
 );
 ```
 
-**`nastaveni` je teď v `web/db.py:OCEKAVANE_TABULKY`** (konzistentně s
-tím, jak `overit_databazi` chytá přesně tenhle druh nesouladu, viz její
-docstring/incident) - web tak na nemigrované `data/rozpis.db` vůbec
-nenaběhne, spadne hned při startu se srozumitelnou chybou "chybí tabulky:
-nastaveni", ne až uprostřed provozu. CLI (`db/cli.py`) `overit_databazi`
-nevolá (nikdy nevolalo, ani pro `uzivatel` z úkolu 1) - `generuj` proti
-nemigrované DB proto proběhne v pohodě: `repo.nastaveni_pro_profil`
-chytá `OperationalError` "no such table" a chová se stejně, jako by
-tabulka existovala, ale řádek pro daný profil v ní nebyl (fallback na
+Poznámka k designu (pro budoucí podobná prostředí, např. produkční
+server po úkolu 10, kde se totéž bude muset spustit znovu): `nastaveni`
+je v `web/db.py:OCEKAVANE_TABULKY` (konzistentně s tím, jak
+`overit_databazi` chytá přesně tenhle druh nesouladu, viz její
+docstring/incident) - web na nemigrované DB vůbec nenaběhne, spadne hned
+při startu se srozumitelnou chybou "chybí tabulky: nastaveni", ne až
+uprostřed provozu. CLI (`db/cli.py`) `overit_databazi` nevolá (nikdy
+nevolalo, ani pro `uzivatel` z úkolu 1) - `generuj` proti nemigrované DB
+by proběhlo v pohodě i tak: `repo.nastaveni_pro_profil` chytá
+`OperationalError` "no such table" a chová se stejně, jako by tabulka
+existovala, ale řádek pro daný profil v ní nebyl (fallback na
 `config.yaml`, viz `db/bridge.py`). `import-txt`/`pridat-nedostupnost`
-se SVZ ale spadne na syrový `sqlite3.IntegrityError` (CHECK na starém
-`nedostupnost.typ`) - tohle ošetřené není. Migraci je tedy potřeba
-spustit PŘED prvním startem webu po tomhle úkolu (a před prvním použitím
-SVZ). Vzor stejný jako u `zakaz_smeny`/`max_za_sebou` (úkol 4 příprava) -
-"ověřeno na kopii DB předem" než na ostrá data.
+se SVZ by ale spadlo na syrový `sqlite3.IntegrityError` (CHECK na starém
+`nedostupnost.typ`) - tohle ošetřené není, proto se migrace spustila
+rovnou, ne až při prvním selhání. Vzor stejný jako u
+`zakaz_smeny`/`max_za_sebou` (úkol 4 příprava) - "ověřeno na kopii DB
+předem" než na ostrá data.
 
 ## Na co si dát pozor příště
 
