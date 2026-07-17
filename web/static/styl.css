@@ -15,6 +15,10 @@
   --barva-nedostupnost-jina: #ececec;
   --barva-vikend: #d9d9d9;
   --barva-mrizky: #bbbbbb;
+
+  /* Pastelová - NEM (nemoc) vlastní barva na přání, pro snazší nalezení
+     v mřížce; tmavý --barva-text na ní zůstává dobře čitelný. */
+  --barva-nem: #f6d4d9;
 }
 
 * {
@@ -188,6 +192,11 @@ table.mrizka .bunka {
 
 .bunka.nedostupnost-dov {
   background: var(--barva-dov);
+}
+
+.bunka.nedostupnost-nem {
+  background: var(--barva-nem);
+  font-size: 0.65rem;
 }
 
 .bunka.nedostupnost-jina {

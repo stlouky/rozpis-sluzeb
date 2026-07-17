@@ -57,13 +57,18 @@ class Bunka:
     @property
     def trida(self) -> str:
         """CSS třída podle obsahu buňky - barvy odpovídají vystup/pdf.py
-        (viz styl.css), prázdný řetězec = žádná (volný/nevyplněný den)."""
+        (viz styl.css), prázdný řetězec = žádná (volný/nevyplněný den).
+        NEM má vlastní pastelovou barvu (na přání, pro názornost - snáz
+        se v mřížce najde, kdo je nemocný), OST/POZADAVEK sdílí neutrální
+        šedou."""
         if self.smena == "D":
             return "smena-d"
         if self.smena == "N":
             return "smena-n"
         if self.nedostupnost == "DOV":
             return "nedostupnost-dov"
+        if self.nedostupnost == "NEM":
+            return "nedostupnost-nem"
         if self.nedostupnost:
             return "nedostupnost-jina"
         return ""

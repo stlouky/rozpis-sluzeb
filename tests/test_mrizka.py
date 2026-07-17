@@ -77,23 +77,31 @@ def test_sestavit_mrizku_souhrn_pocita_d_n_vikend(conn):
     assert radek.pocet_vikendu == 1  # jen 1.8. (sobota) se počítá
 
 
-def test_sestavit_mrizku_dov_a_jina_nedostupnost_se_lisi(conn):
+def test_sestavit_mrizku_dov_nem_ost_maji_rozdilne_tridy(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 3), "DOV")
     repo.pridat_nedostupnost(conn, id_, date(2026, 8, 4), date(2026, 8, 4), "NEM")
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 5), date(2026, 8, 5), "OST")
 
     mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
     radek = mrizka.radky[0]
     bunka_dov = radek.bunky[2]  # 3.8. (0-indexováno)
     bunka_nem = radek.bunky[3]  # 4.8.
+    bunka_ost = radek.bunky[4]  # 5.8.
 
     assert bunka_dov.nedostupnost == "DOV"
     assert bunka_dov.trida == "nedostupnost-dov"
     assert bunka_dov.text == ""  # DOV se jen barví, bez textu (jako v PDF)
 
+    # NEM má vlastní pastelovou třídu (na přání - snáz se v mřížce najde,
+    # kdo je nemocný), OST/POZADAVEK sdílí neutrální nedostupnost-jina
     assert bunka_nem.nedostupnost == "NEM"
-    assert bunka_nem.trida == "nedostupnost-jina"
-    assert bunka_nem.text == "nem"  # ostatní nedostupnosti = text typu, malými písmeny
+    assert bunka_nem.trida == "nedostupnost-nem"
+    assert bunka_nem.text == "nem"
+
+    assert bunka_ost.nedostupnost == "OST"
+    assert bunka_ost.trida == "nedostupnost-jina"
+    assert bunka_ost.text == "ost"
 
 
 def test_sestavit_mrizku_pozadavek_se_zkrati_na_poz(conn):
