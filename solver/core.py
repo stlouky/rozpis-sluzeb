@@ -111,7 +111,8 @@ def generate_schedule(
         for d in range(pocet_dni - 1):
             model.AddImplication(smena[z, d, N], smena[z, d + 1, D].Not())
 
-    # Max max_v_rade směn v řadě, pak volno
+    # Max max_v_rade směn v řadě, pak volno (individuální strop viz
+    # Config.max_v_rade_override, jinak společné config.pravidla.max_v_rade)
     pracuje = {}
     for z in lide:
         for d in dny:
@@ -119,7 +120,7 @@ def generate_schedule(
             model.Add(smena[z, d, D] + smena[z, d, N] == 1).OnlyEnforceIf(p)
             model.Add(smena[z, d, D] + smena[z, d, N] == 0).OnlyEnforceIf(p.Not())
             pracuje[z, d] = p
-        max_v_rade = config.pravidla.max_v_rade
+        max_v_rade = config.max_v_rade_override.get(z, config.pravidla.max_v_rade)
         for d in range(pocet_dni - max_v_rade):
             model.Add(sum(pracuje[z, d + i] for i in range(max_v_rade + 1)) <= max_v_rade)
 

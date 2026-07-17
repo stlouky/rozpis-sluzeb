@@ -13,7 +13,16 @@ CREATE TABLE IF NOT EXISTS zamestnanec (
     -- NULL = platí společný strop z config.yaml (pravidla.max_smen_mesic).
     -- Jinak individuální strop jen pro tohohle člověka (např. brigádník/-ce
     -- se sníženou kapacitou) - viz solver.Config.max_smen_mesic_override.
-    max_smen_mesic INTEGER
+    max_smen_mesic INTEGER,
+    -- Trvalé osobní omezení typu směny (na rozdíl od nedostupnost.zakazana_smena,
+    -- které je časově ohraničené na konkrétní interval) - NULL = žádné,
+    -- 'D'/'N' = tenhle typ směny nesmí mít NIKDY, v žádném měsíci (zdravotní
+    -- apod. důvod) - viz solver.Config.zakazane_smeny, promítá se tam pro
+    -- všechny dny měsíce.
+    zakaz_smeny TEXT CHECK (zakaz_smeny IN ('D', 'N')),
+    -- Osobní strop směn v řadě (typicky zdravotní důvod) - NULL = platí
+    -- společné pravidla.max_v_rade - viz solver.Config.max_v_rade_override.
+    max_za_sebou INTEGER
 );
 
 -- Nedostupnost je INTERVAL (od-do), ne jednotlivé dny - dovolená se zadává

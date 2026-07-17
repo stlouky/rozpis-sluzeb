@@ -75,6 +75,9 @@ class Config:
     # Individuální strop směn/měsíc pro konkrétního člověka (např. brigádník
     # se sníženou kapacitou) - přebije pravidla.max_smen_mesic jen pro něj.
     max_smen_mesic_override: dict[str, int] = field(default_factory=dict)
+    # Osobní strop směn v řadě (typicky zdravotní důvod) - přebije
+    # pravidla.max_v_rade jen pro tohohle člověka (zamestnanec.max_za_sebou).
+    max_v_rade_override: dict[str, int] = field(default_factory=dict)
 
     @property
     def pocet_dni(self) -> int:
@@ -120,6 +123,14 @@ class Config:
                 )
             if strop < 0:
                 raise ConfigError(f"Individuální strop směn {jmeno}: musí být >= 0.")
+
+        for jmeno, strop in self.max_v_rade_override.items():
+            if jmeno not in znama_jmena:
+                raise ConfigError(
+                    f"Osobní strop směn v řadě odkazuje na neznámého zaměstnance: {jmeno}"
+                )
+            if strop < 1:
+                raise ConfigError(f"Osobní strop směn v řadě {jmeno}: musí být alespoň 1.")
 
         for a, b in self.nekompatibilni_dvojice:
             for jmeno in (a, b):
@@ -168,7 +179,7 @@ def _nacti_zakazane_smeny(data: dict) -> dict[str, dict[int, tuple[str, ...]]]:
     }
 
 
-def _nacti_max_smen_mesic_override(data: dict) -> dict[str, int]:
+def _nacti_int_override(data: dict) -> dict[str, int]:
     return dict(data or {})
 
 
@@ -199,9 +210,10 @@ def config_from_dict(data: dict) -> Config:
             zakazane_dvojice=_nacti_dvojice(data.get("zakazane_dvojice")),
             duvody_nedostupnosti=_nacti_duvody_nedostupnosti(data.get("duvody_nedostupnosti")),
             zakazane_smeny=_nacti_zakazane_smeny(data.get("zakazane_smeny")),
-            max_smen_mesic_override=_nacti_max_smen_mesic_override(
+            max_smen_mesic_override=_nacti_int_override(
                 data.get("max_smen_mesic_override")
             ),
+            max_v_rade_override=_nacti_int_override(data.get("max_v_rade_override")),
         )
     except KeyError as chybi:
         raise ConfigError(f"V konfiguraci chybí povinný klíč: {chybi}") from chybi

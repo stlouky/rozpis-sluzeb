@@ -303,6 +303,51 @@ def test_config_odmitne_zaporny_individualni_strop():
         zakladni_config(max_smen_mesic_override={"Alena": -1})
 
 
+def test_max_v_rade_override_omezi_jen_dane_osoby():
+    # Alena má osobní strop 1 (zdravotní důvod) - nesmí sloužit dva dny po
+    # sobě, ostatní zůstávají na společném max_v_rade=3 z config.yaml
+    config = zakladni_config(max_v_rade_override={"Alena": 1})
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT, random_seed=42)
+
+    for den in range(1, schedule.pocet_dni):
+        pracuje_dnes = schedule.smena_zamestnance("Alena", den) is not None
+        pracuje_zitra = schedule.smena_zamestnance("Alena", den + 1) is not None
+        assert not (pracuje_dnes and pracuje_zitra), (
+            f"Alena pracuje dva dny po sobě ({den}. a {den + 1}.), "
+            f"ačkoli má osobní strop max_v_rade_override=1"
+        )
+
+
+def test_config_odmitne_neznameho_zamestnance_v_max_v_rade_override():
+    with pytest.raises(ConfigError):
+        zakladni_config(max_v_rade_override={"Neexistujici": 1})
+
+
+def test_config_odmitne_max_v_rade_override_pod_jedna():
+    with pytest.raises(ConfigError):
+        zakladni_config(max_v_rade_override={"Alena": 0})
+
+
+def test_trvaly_zakaz_nocni_a_max_za_sebou_jedna_spolecne():
+    # reálný scénář (viz db.bridge.config_pro_mesic): zaměstnankyně nesmí
+    # mít noční vůbec (zakazane_smeny pro všechny dny měsíce) a nesmí mít
+    # dvě směny po sobě (max_v_rade_override=1) - obě omezení najednou
+    zakazane_smeny_alena = {den: ("N",) for den in range(1, 32)}
+    config = zakladni_config(
+        zakazane_smeny={"Alena": zakazane_smeny_alena},
+        max_v_rade_override={"Alena": 1},
+    )
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT, random_seed=42)
+
+    for den in range(1, schedule.pocet_dni + 1):
+        assert schedule.smena_zamestnance("Alena", den) != "N"
+
+    for den in range(1, schedule.pocet_dni):
+        pracuje_dnes = schedule.smena_zamestnance("Alena", den) is not None
+        pracuje_zitra = schedule.smena_zamestnance("Alena", den + 1) is not None
+        assert not (pracuje_dnes and pracuje_zitra)
+
+
 def test_random_seed_je_deterministicky():
     config = zakladni_config()
     a = generate_schedule(config, time_limit_s=TIME_LIMIT, random_seed=42)

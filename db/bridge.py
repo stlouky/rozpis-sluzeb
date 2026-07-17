@@ -59,10 +59,23 @@ def config_pro_mesic(
     max_smen_mesic_override = {
         z.jmeno: z.max_smen_mesic for z in aktivni if z.max_smen_mesic is not None
     }
+    max_v_rade_override = {
+        z.jmeno: z.max_za_sebou for z in aktivni if z.max_za_sebou is not None
+    }
 
     nedostupnosti: dict[str, set[int]] = {}
     duvody_nedostupnosti: dict[str, dict[int, str]] = {}
     zakazane_smeny: dict[str, dict[int, tuple[str, ...]]] = {}
+
+    # Trvalé osobní omezení typu směny (zamestnanec.zakaz_smeny) - na
+    # rozdíl od nedostupnost.zakazana_smena (časově ohraničené) platí pro
+    # VŠECHNY dny měsíce, proto se rovnou promítne do stejné zakazane_smeny
+    # struktury, kterou solver už umí (žádná nová solver logika navíc).
+    for z in aktivni:
+        if z.zakaz_smeny is not None:
+            dny_omezeni = zakazane_smeny.setdefault(z.jmeno, {})
+            for den in range(1, posledni_den.day + 1):
+                dny_omezeni[den] = dny_omezeni.get(den, ()) + (z.zakaz_smeny,)
 
     # Nástup/odchod uprostřed měsíce: aktivni_zamestnanci_v_obdobi vrátí
     # zaměstnance, jehož aktivní interval se s měsícem JEN překrývá (viz
@@ -122,6 +135,7 @@ def config_pro_mesic(
         "duvody_nedostupnosti": duvody_nedostupnosti,
         "zakazane_smeny": zakazane_smeny,
         "max_smen_mesic_override": max_smen_mesic_override,
+        "max_v_rade_override": max_v_rade_override,
     }
     return config_from_dict(data)
 

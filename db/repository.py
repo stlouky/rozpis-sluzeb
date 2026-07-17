@@ -63,6 +63,8 @@ def _zamestnanec_z_radku(radek: sqlite3.Row) -> Zamestnanec:
         aktivni_do=_na_datum(radek["aktivni_do"]),
         stitky=radek["stitky"],
         max_smen_mesic=radek["max_smen_mesic"],
+        zakaz_smeny=radek["zakaz_smeny"],
+        max_za_sebou=radek["max_za_sebou"],
     )
 
 
@@ -150,6 +152,30 @@ def nastavit_max_smen_mesic(
     conn.execute(
         "UPDATE zamestnanec SET max_smen_mesic = ? WHERE id = ?",
         (max_smen_mesic, zamestnanec_id),
+    )
+    conn.commit()
+
+
+def nastavit_zakaz_smeny(
+    conn: sqlite3.Connection, zamestnanec_id: int, zakaz_smeny: str | None
+) -> None:
+    """Nastaví (nebo zruší, pokud None) trvalý zákaz typu směny ('D'/'N') -
+    platí pro všechny měsíce, na rozdíl od nedostupnost.zakazana_smena."""
+    conn.execute(
+        "UPDATE zamestnanec SET zakaz_smeny = ? WHERE id = ?",
+        (zakaz_smeny, zamestnanec_id),
+    )
+    conn.commit()
+
+
+def nastavit_max_za_sebou(
+    conn: sqlite3.Connection, zamestnanec_id: int, max_za_sebou: int | None
+) -> None:
+    """Nastaví (nebo zruší, pokud None) osobní strop směn v řadě - přebije
+    společné pravidla.max_v_rade jen pro tohohle člověka."""
+    conn.execute(
+        "UPDATE zamestnanec SET max_za_sebou = ? WHERE id = ?",
+        (max_za_sebou, zamestnanec_id),
     )
     conn.commit()
 

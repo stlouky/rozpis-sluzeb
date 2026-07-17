@@ -39,6 +39,38 @@ def test_pridat_a_vypsat_aktivni_zamestnance(conn):
     assert bedrich.seznam_stitku == ["fyzicka_vypomoc"]
 
 
+def test_zakaz_smeny_a_max_za_sebou_vychozi_none(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    alena = repo.aktivni_zamestnanci(conn, date(2026, 1, 1))[0]
+    assert alena.id == id_
+    assert alena.zakaz_smeny is None
+    assert alena.max_za_sebou is None
+
+
+def test_nastavit_zakaz_smeny_a_max_za_sebou(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+
+    repo.nastavit_zakaz_smeny(conn, id_, "N")
+    repo.nastavit_max_za_sebou(conn, id_, 1)
+
+    alena = repo.aktivni_zamestnanci(conn, date(2026, 1, 1))[0]
+    assert alena.zakaz_smeny == "N"
+    assert alena.max_za_sebou == 1
+
+    # zrušení zpět na None (konec zdravotního omezení apod.)
+    repo.nastavit_zakaz_smeny(conn, id_, None)
+    repo.nastavit_max_za_sebou(conn, id_, None)
+    alena = repo.aktivni_zamestnanci(conn, date(2026, 1, 1))[0]
+    assert alena.zakaz_smeny is None
+    assert alena.max_za_sebou is None
+
+
+def test_zakaz_smeny_odmita_neplatnou_hodnotu(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    with pytest.raises(sqlite3.IntegrityError):
+        repo.nastavit_zakaz_smeny(conn, id_, "X")
+
+
 def test_deaktivovany_zamestnanec_zmizi_po_datu_odchodu(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     repo.deaktivovat_zamestnance(conn, id_, date(2026, 6, 30))
@@ -131,6 +163,47 @@ def test_max_smen_mesic_z_db_ovlivni_vygenerovany_rozpis(conn):
     config = config_pro_mesic(conn, 2026, 8)
     schedule = generate_schedule(config, time_limit_s=10.0)
     assert schedule.souhrn_zamestnance("Alena")["smeny"] <= 5
+
+
+def test_zakaz_smeny_se_projevi_v_configu_pro_cely_mesic(conn):
+    # trvalé osobní omezení (na rozdíl od nedostupnost.zakazana_smena)
+    # musí platit pro VŠECHNY dny měsíce, ne jen jeden interval
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.nastavit_zakaz_smeny(conn, id_, "N")
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert set(config.zakazane_smeny["Alena"].keys()) == set(range(1, 32))
+    assert all(typy == ("N",) for typy in config.zakazane_smeny["Alena"].values())
+
+
+def test_max_za_sebou_se_projevi_v_configu_pro_mesic(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.nastavit_max_za_sebou(conn, id_, 1)
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert config.max_v_rade_override == {"Alena": 1}
+
+
+def test_zakaz_smeny_a_max_za_sebou_z_db_ovlivni_vygenerovany_rozpis(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.nastavit_zakaz_smeny(conn, id_, "N")
+    repo.nastavit_max_za_sebou(conn, id_, 1)
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config = config_pro_mesic(conn, 2026, 8)
+    schedule = generate_schedule(config, time_limit_s=10.0, random_seed=42)
+
+    for den in range(1, schedule.pocet_dni + 1):
+        assert schedule.smena_zamestnance("Alena", den) != "N"
+    for den in range(1, schedule.pocet_dni):
+        pracuje_dnes = schedule.smena_zamestnance("Alena", den) is not None
+        pracuje_zitra = schedule.smena_zamestnance("Alena", den + 1) is not None
+        assert not (pracuje_dnes and pracuje_zitra)
 
 
 def test_odchod_uprostred_mesice_omezi_dostupnost_jen_na_aktivni_dny(conn):

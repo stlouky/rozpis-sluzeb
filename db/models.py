@@ -14,6 +14,8 @@ class Zamestnanec:
     aktivni_do: date | None
     stitky: str  # čárkou oddělené, prázdný řetězec = žádné
     max_smen_mesic: int | None = None  # None = společný strop z config.yaml
+    zakaz_smeny: str | None = None  # 'D' | 'N' | None - trvalý zákaz typu směny
+    max_za_sebou: int | None = None  # None = společné pravidla.max_v_rade
 
     @property
     def seznam_stitku(self) -> list[str]:
