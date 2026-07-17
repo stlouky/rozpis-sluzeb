@@ -123,6 +123,12 @@ table.seznam td {
   text-align: left;
 }
 
+/* Akční tlačítka v posledním sloupci seznamu (smazat apod.) vedle sebe
+   s odkazem, ne každé na vlastním řádku. */
+table.seznam form {
+  display: inline;
+}
+
 /* Stejný tvar formuláře jako .prihlaseni (login) - konzistentní vzhled
    napříč appkou, jen bez centrování na celou stránku. */
 .formular {

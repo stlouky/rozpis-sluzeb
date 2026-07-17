@@ -273,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("zamestnanec_id", type=int)
     p.add_argument("od", help="YYYY-MM-DD")
     p.add_argument("do", help="YYYY-MM-DD")
-    p.add_argument("typ", choices=["DOV", "NEM", "OST", "POZADAVEK"])
+    p.add_argument("typ", choices=["DOV", "NEM", "OST", "SVZ", "POZADAVEK"])
     p.add_argument("--poznamka")
     p.add_argument(
         "--zakazana-smena",

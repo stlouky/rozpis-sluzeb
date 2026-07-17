@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from db import repository as repo
 from db.cesta import vychozi_cesta_db
-from db.models import Uzivatel, Zamestnanec
+from db.models import NastaveniProfilu, Nedostupnost, Uzivatel, Zamestnanec
 
 from .auth import (
     MAX_STARI_SESSION_S,
@@ -35,7 +35,7 @@ from .auth import (
     vytvorit_session,
 )
 from .db import overit_databazi, ziskat_pripojeni
-from .mrizka import sestavit_mrizku
+from .mrizka import NAZEV_NEDOSTUPNOSTI, sestavit_mrizku
 
 ROOT = Path(__file__).resolve().parent
 
@@ -325,3 +325,218 @@ def admin_zamestnanec_smazat(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     return RedirectResponse(url="/admin/zamestnanci", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# --- úkol 5: admin - nedostupnosti + parametry pravidel ---
+
+
+def _nedostupnost_nebo_404(conn: sqlite3.Connection, nedostupnost_id: int) -> Nedostupnost:
+    nedostupnost = repo.nedostupnost_podle_id(conn, nedostupnost_id)
+    if nedostupnost is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nedostupnost neexistuje")
+    return nedostupnost
+
+
+def _bez_smeny(zakazana_smena: str) -> str | None:
+    """Formulářová hodnota '' (celý den) -> None, jinak 'D'/'N' beze změny."""
+    return zakazana_smena if zakazana_smena in ("D", "N") else None
+
+
+@app.get("/admin/nedostupnosti")
+def admin_nedostupnosti_seznam(
+    request: Request,
+    varovani: int = 0,
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    jmeno_podle_id = {z.id: z.jmeno for z in repo.vsichni_zamestnanci(conn)}
+    return sablony.TemplateResponse(
+        request,
+        "admin_nedostupnosti.html",
+        {
+            "uzivatel": uzivatel,
+            "nedostupnosti": repo.vsechny_nedostupnosti(conn),
+            "jmeno_podle_id": jmeno_podle_id,
+            "nazvy_typu": NAZEV_NEDOSTUPNOSTI,
+            "varovani": varovani,
+        },
+    )
+
+
+@app.get("/admin/nedostupnosti/nova")
+def admin_nedostupnost_nova_formular(
+    request: Request,
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    return sablony.TemplateResponse(
+        request,
+        "admin_nedostupnost_nova.html",
+        {
+            "uzivatel": uzivatel,
+            "chyba": None,
+            "zamestnanci": repo.aktivni_zamestnanci(conn, date.today()),
+            "typy": NAZEV_NEDOSTUPNOSTI,
+        },
+    )
+
+
+@app.post("/admin/nedostupnosti/nova")
+def admin_nedostupnost_nova_odeslani(
+    zamestnanec_id: int = Form(...),
+    od: date = Form(...),
+    do: date = Form(...),
+    typ: str = Form(...),
+    poznamka: str = Form(""),
+    zakazana_smena: str = Form(""),
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    nova_id = repo.pridat_nedostupnost(
+        conn, zamestnanec_id, od, do, typ, poznamka.strip() or None, _bez_smeny(zakazana_smena)
+    )
+    # Překryv jen jako varování, ne blokace (viz úkol 5 zadání) - záznam
+    # je uložený, i když se s jiným časově kryje.
+    prekryv = repo.prekryvajici_nedostupnosti(conn, zamestnanec_id, od, do, vynechat_id=nova_id)
+    url = "/admin/nedostupnosti"
+    if prekryv:
+        url += f"?varovani={len(prekryv)}"
+    return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/admin/nedostupnosti/{nedostupnost_id}/upravit")
+def admin_nedostupnost_upravit_formular(
+    request: Request,
+    nedostupnost_id: int,
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    nedostupnost = _nedostupnost_nebo_404(conn, nedostupnost_id)
+    zamestnanec = repo.zamestnanec_podle_id(conn, nedostupnost.zamestnanec_id)
+    return sablony.TemplateResponse(
+        request,
+        "admin_nedostupnost_upravit.html",
+        {
+            "uzivatel": uzivatel,
+            "chyba": None,
+            "nedostupnost": nedostupnost,
+            "zamestnanec": zamestnanec,
+            "typy": NAZEV_NEDOSTUPNOSTI,
+        },
+    )
+
+
+@app.post("/admin/nedostupnosti/{nedostupnost_id}/upravit")
+def admin_nedostupnost_upravit_odeslani(
+    nedostupnost_id: int,
+    od: date = Form(...),
+    do: date = Form(...),
+    typ: str = Form(...),
+    poznamka: str = Form(""),
+    zakazana_smena: str = Form(""),
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    nedostupnost = _nedostupnost_nebo_404(conn, nedostupnost_id)
+    repo.upravit_nedostupnost(
+        conn, nedostupnost_id, od, do, typ, poznamka.strip() or None, _bez_smeny(zakazana_smena)
+    )
+    prekryv = repo.prekryvajici_nedostupnosti(
+        conn, nedostupnost.zamestnanec_id, od, do, vynechat_id=nedostupnost_id
+    )
+    url = "/admin/nedostupnosti"
+    if prekryv:
+        url += f"?varovani={len(prekryv)}"
+    return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/admin/nedostupnosti/{nedostupnost_id}/smazat")
+def admin_nedostupnost_smazat(
+    nedostupnost_id: int,
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    _nedostupnost_nebo_404(conn, nedostupnost_id)
+    repo.zrusit_nedostupnost(conn, nedostupnost_id)
+    return RedirectResponse(url="/admin/nedostupnosti", status_code=status.HTTP_303_SEE_OTHER)
+
+
+# --- úkol 5: admin - parametry pravidel (profily normalni/krizovy) ---
+
+PROFILY = ("normalni", "krizovy")
+
+
+def _validovat_nastaveni(n: NastaveniProfilu) -> str | None:
+    """Stejné meze jako solver.config.Config.validovat(), jen dřív -
+    admin se o chybě dozví hned při uložení, ne až při generování
+    (úkol 6 v době psaní ještě neexistuje, config_pro_mesic by chybu
+    vyhodil, ale nic by ji nezobrazilo)."""
+    if not (0 <= n.denni_min <= n.denni_max):
+        return "Denní obsazení: min musí být <= max a >= 0."
+    if not (0 <= n.nocni_min <= n.nocni_max):
+        return "Noční obsazení: min musí být <= max a >= 0."
+    if n.max_v_rade < 1:
+        return "Max směn v řadě musí být alespoň 1."
+    if n.max_smen_mesic < 1:
+        return "Max směn/měsíc musí být alespoň 1."
+    return None
+
+
+@app.get("/admin/nastaveni")
+def admin_nastaveni_formular(
+    request: Request,
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    return sablony.TemplateResponse(
+        request,
+        "admin_nastaveni.html",
+        {
+            "uzivatel": uzivatel,
+            "chyba": None,
+            "nastaveni": {p: repo.nastaveni_pro_profil(conn, p) for p in PROFILY},
+        },
+    )
+
+
+@app.post("/admin/nastaveni/{profil}")
+def admin_nastaveni_ulozit(
+    request: Request,
+    profil: str,
+    denni_min: int = Form(...),
+    denni_max: int = Form(...),
+    nocni_min: int = Form(...),
+    nocni_max: int = Form(...),
+    max_v_rade: int = Form(...),
+    max_smen_mesic: int = Form(...),
+    plne_obsazeni: int = Form(10),
+    ferovost_nocni: int = Form(5),
+    ferovost_vikendy: int = Form(3),
+    ferovost_celkem: int = Form(4),
+    nekompatibilni_penalizace: int = Form(8),
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    if profil not in PROFILY:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Neznámý profil")
+
+    nastaveni = NastaveniProfilu(
+        profil=profil, denni_min=denni_min, denni_max=denni_max, nocni_min=nocni_min,
+        nocni_max=nocni_max, max_v_rade=max_v_rade, max_smen_mesic=max_smen_mesic,
+        plne_obsazeni=plne_obsazeni, ferovost_nocni=ferovost_nocni,
+        ferovost_vikendy=ferovost_vikendy, ferovost_celkem=ferovost_celkem,
+        nekompatibilni_penalizace=nekompatibilni_penalizace,
+    )
+    chyba = _validovat_nastaveni(nastaveni)
+    if chyba:
+        vsechna_nastaveni = {p: repo.nastaveni_pro_profil(conn, p) for p in PROFILY}
+        vsechna_nastaveni[profil] = nastaveni  # ukázat zpět rozepsané neplatné hodnoty
+        return sablony.TemplateResponse(
+            request,
+            "admin_nastaveni.html",
+            {"uzivatel": uzivatel, "chyba": chyba, "nastaveni": vsechna_nastaveni},
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    repo.ulozit_nastaveni(conn, nastaveni)
+    return RedirectResponse(url="/admin/nastaveni", status_code=status.HTTP_303_SEE_OTHER)

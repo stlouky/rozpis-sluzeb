@@ -13,7 +13,15 @@ from pathlib import Path
 
 from solver.schedule import Schedule
 
-from .models import Dvojice, Nedostupnost, PreskocenaSmena, Smena, Uzivatel, Zamestnanec
+from .models import (
+    Dvojice,
+    NastaveniProfilu,
+    Nedostupnost,
+    PreskocenaSmena,
+    Smena,
+    Uzivatel,
+    Zamestnanec,
+)
 
 SCHEMA_CESTA = Path(__file__).resolve().parent / "schema.sql"
 
@@ -272,6 +280,44 @@ def zrusit_nedostupnost(conn: sqlite3.Connection, nedostupnost_id: int) -> None:
     conn.commit()
 
 
+def nedostupnost_podle_id(conn: sqlite3.Connection, nedostupnost_id: int) -> Nedostupnost | None:
+    radek = conn.execute(
+        "SELECT * FROM nedostupnost WHERE id = ?", (nedostupnost_id,)
+    ).fetchone()
+    return _nedostupnost_z_radku(radek) if radek else None
+
+
+def upravit_nedostupnost(
+    conn: sqlite3.Connection,
+    nedostupnost_id: int,
+    od: date,
+    do: date,
+    typ: str,
+    poznamka: str | None = None,
+    zakazana_smena: str | None = None,
+) -> None:
+    """Přepíše existující záznam (úkol 4 přidal jen add/remove - tohle je
+    "doplnit editaci" z úkolu 5, ať admin nemusí mazat a zakládat znovu
+    kvůli překlepu v datu/popisu)."""
+    conn.execute(
+        """
+        UPDATE nedostupnost
+        SET od = ?, do = ?, typ = ?, poznamka = ?, zakazana_smena = ?
+        WHERE id = ?
+        """,
+        (od.isoformat(), do.isoformat(), typ, poznamka, zakazana_smena, nedostupnost_id),
+    )
+    conn.commit()
+
+
+def vsechny_nedostupnosti(conn: sqlite3.Connection) -> list[Nedostupnost]:
+    """Úplný výpis bez omezení na období - pro admin seznam (úkol 5), na
+    rozdíl od nedostupnosti_v_obdobi níž (ta slouží config_pro_mesic/
+    mřížce). Nejnovější (podle od) první."""
+    radky = conn.execute("SELECT * FROM nedostupnost ORDER BY od DESC, id DESC").fetchall()
+    return [_nedostupnost_z_radku(r) for r in radky]
+
+
 def nedostupnosti_v_obdobi(conn: sqlite3.Connection, od: date, do: date) -> list[Nedostupnost]:
     """Nedostupnosti, jejichž interval se překrývá s [od, do]."""
     radky = conn.execute(
@@ -281,6 +327,30 @@ def nedostupnosti_v_obdobi(conn: sqlite3.Connection, od: date, do: date) -> list
         ORDER BY id
         """,
         (do.isoformat(), od.isoformat()),
+    ).fetchall()
+    return [_nedostupnost_z_radku(r) for r in radky]
+
+
+def prekryvajici_nedostupnosti(
+    conn: sqlite3.Connection,
+    zamestnanec_id: int,
+    od: date,
+    do: date,
+    vynechat_id: int | None = None,
+) -> list[Nedostupnost]:
+    """Existující nedostupnosti STEJNÉHO zaměstnance, jejichž interval se
+    překrývá s [od, do] - jen pro varování ve web UI (úkol 5: "překryvy
+    nedostupností: varování, ne blokace"), nic se tím neblokuje.
+    vynechat_id vyřadí sebe sama při editaci (jinak by záznam vždycky
+    "překrýval" sám sebe)."""
+    radky = conn.execute(
+        """
+        SELECT * FROM nedostupnost
+        WHERE zamestnanec_id = ? AND od <= ? AND do >= ?
+          AND (? IS NULL OR id != ?)
+        ORDER BY id
+        """,
+        (zamestnanec_id, do.isoformat(), od.isoformat(), vynechat_id, vynechat_id),
     ).fetchall()
     return [_nedostupnost_z_radku(r) for r in radky]
 
@@ -434,4 +504,55 @@ def uzivatel_podle_id(conn: sqlite3.Connection, uzivatel_id: int) -> Uzivatel | 
 
 def zmenit_heslo(conn: sqlite3.Connection, uzivatel_id: int, heslo_hash: str) -> None:
     conn.execute("UPDATE uzivatel SET heslo_hash = ? WHERE id = ?", (heslo_hash, uzivatel_id))
+    conn.commit()
+
+
+# --- nastavení (úkol 5: parametry pravidel, profily normalni/krizovy) ---
+
+_NASTAVENI_SLOUPCE = (
+    "denni_min", "denni_max", "nocni_min", "nocni_max", "max_v_rade",
+    "max_smen_mesic", "plne_obsazeni", "ferovost_nocni", "ferovost_vikendy",
+    "ferovost_celkem", "nekompatibilni_penalizace",
+)
+
+
+def nastaveni_pro_profil(conn: sqlite3.Connection, profil: str) -> NastaveniProfilu | None:
+    """None, dokud admin daný profil poprvé neuloží - volající (db/bridge.py)
+    to bere jako signál použít config.yaml (viz schema.sql).
+
+    Tabulka nastaveni je nová (úkol 5) - na existující data/rozpis.db bez
+    ruční migrace (viz STAV-FAZE3.md) ještě nemusí vůbec existovat. Web ji
+    vyžaduje už při startu (web/db.py:OCEKAVANE_TABULKY), ale CLI generuj
+    overit_databazi nevolá (nikdy nevolalo) - "tabulka chybí" tak musí
+    spadnout na stejné None jako "řádek chybí", ať CLI proti nemigrované
+    DB dál funguje (fallback na config.yaml), místo aby spadlo na syrový
+    OperationalError.
+    """
+    try:
+        radek = conn.execute(
+            "SELECT * FROM nastaveni WHERE profil = ?", (profil,)
+        ).fetchone()
+    except sqlite3.OperationalError as e:
+        if "no such table" not in str(e):
+            raise
+        return None
+    if radek is None:
+        return None
+    return NastaveniProfilu(profil=radek["profil"], **{s: radek[s] for s in _NASTAVENI_SLOUPCE})
+
+
+def ulozit_nastaveni(conn: sqlite3.Connection, nastaveni: NastaveniProfilu) -> None:
+    """Upsert podle profilu (PRIMARY KEY) - první uložení daného profilu
+    ho založí, další jen přepíšou hodnoty."""
+    sloupce = ("profil",) + _NASTAVENI_SLOUPCE
+    hodnoty = [getattr(nastaveni, s) for s in sloupce]
+    conn.execute(
+        f"""
+        INSERT INTO nastaveni ({", ".join(sloupce)})
+        VALUES ({", ".join("?" * len(sloupce))})
+        ON CONFLICT (profil) DO UPDATE SET
+        {", ".join(f"{s} = excluded.{s}" for s in _NASTAVENI_SLOUPCE)}
+        """,
+        hodnoty,
+    )
     conn.commit()

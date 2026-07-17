@@ -1,0 +1,35 @@
+{% extends "_layout.html" %}
+{% block titulek %}Upravit nedostupnost – Rozpis služeb{% endblock %}
+{% block obsah %}
+{% include "_hlavicka.html" %}
+<main>
+  <h1>Upravit nedostupnost - {{ zamestnanec.jmeno }}</h1>
+  {% if chyba %}<p class="chyba">{{ chyba }}</p>{% endif %}
+  <form method="post" action="/admin/nedostupnosti/{{ nedostupnost.id }}/upravit" class="formular">
+    <label>Od
+      <input type="date" name="od" value="{{ nedostupnost.od }}" required>
+    </label>
+    <label>Do
+      <input type="date" name="do" value="{{ nedostupnost.do }}" required>
+    </label>
+    <label>Typ
+      <select name="typ" required>
+        {% for kod, nazev in typy.items() %}
+          <option value="{{ kod }}" {% if kod == nedostupnost.typ %}selected{% endif %}>{{ nazev }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Zakázaná směna (nepovinné - prázdné = celý den nedostupný)
+      <select name="zakazana_smena">
+        <option value="" {% if not nedostupnost.zakazana_smena %}selected{% endif %}>celý den</option>
+        <option value="D" {% if nedostupnost.zakazana_smena == 'D' %}selected{% endif %}>jen denní (noční zůstává k dispozici)</option>
+        <option value="N" {% if nedostupnost.zakazana_smena == 'N' %}selected{% endif %}>jen noční (denní zůstává k dispozici)</option>
+      </select>
+    </label>
+    <label>Poznámka (nepovinné, jen pro admina)
+      <input type="text" name="poznamka" value="{{ nedostupnost.poznamka or '' }}">
+    </label>
+    <button type="submit">Uložit</button>
+  </form>
+</main>
+{% endblock %}

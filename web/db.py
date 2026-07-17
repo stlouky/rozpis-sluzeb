@@ -19,7 +19,12 @@ from db import repository as repo
 _LOG = logging.getLogger(__name__)
 
 # Tabulky, které musí existovat, aby web mohl fungovat (viz db/schema.sql).
-OCEKAVANE_TABULKY = frozenset({"zamestnanec", "nedostupnost", "smena", "dvojice", "uzivatel"})
+# nastaveni přibyla v úkolu 5 - bez ní by web startoval "tiše" proti staré
+# DB a spadl by až při prvním /admin/nastaveni na "no such table" uprostřed
+# provozu (přesně incident, kvůli kterému overit_databazi vůbec existuje).
+OCEKAVANE_TABULKY = frozenset(
+    {"zamestnanec", "nedostupnost", "smena", "dvojice", "uzivatel", "nastaveni"}
+)
 
 
 def overit_databazi(cesta_db: Path) -> None:

@@ -70,3 +70,24 @@ class Uzivatel:
     jmeno: str
     heslo_hash: str
     role: str  # 'admin' | 'nahled'
+
+
+@dataclass(frozen=True)
+class NastaveniProfilu:
+    """Parametry pravidel pro jeden pojmenovaný profil ('normalni' /
+    'krizovy', viz db/schema.sql) - obsazení, max_v_rade, max_smen_mesic
+    a váhy pohromadě, ve stejném tvaru, jaký solver.config.config_from_dict
+    čeká pod klíči obsazeni/pravidla/vahy."""
+
+    profil: str
+    denni_min: int
+    denni_max: int
+    nocni_min: int
+    nocni_max: int
+    max_v_rade: int
+    max_smen_mesic: int
+    plne_obsazeni: int = 10
+    ferovost_nocni: int = 5
+    ferovost_vikendy: int = 3
+    ferovost_celkem: int = 4
+    nekompatibilni_penalizace: int = 8

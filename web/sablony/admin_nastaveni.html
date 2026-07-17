@@ -1,0 +1,56 @@
+{% extends "_layout.html" %}
+{% block titulek %}Nastavení – Rozpis služeb{% endblock %}
+{% block obsah %}
+{% include "_hlavicka.html" %}
+<main>
+  <h1>Nastavení pravidel</h1>
+  {% if chyba %}<p class="chyba">{{ chyba }}</p>{% endif %}
+
+  {% for profil, nazev in [('normalni', 'Normální profil'), ('krizovy', 'Krizový profil')] %}
+    {% set n = nastaveni[profil] %}
+    <h2>{{ nazev }}</h2>
+    {% if not n %}
+      <p>Zatím nenastaveno - dokud se neuloží, používá se config.yaml.</p>
+    {% endif %}
+    <form method="post" action="/admin/nastaveni/{{ profil }}" class="formular">
+      <label>Denní obsazení min
+        <input type="number" name="denni_min" min="0" value="{{ n.denni_min if n else '' }}" required>
+      </label>
+      <label>Denní obsazení max
+        <input type="number" name="denni_max" min="0" value="{{ n.denni_max if n else '' }}" required>
+      </label>
+      <label>Noční obsazení min
+        <input type="number" name="nocni_min" min="0" value="{{ n.nocni_min if n else '' }}" required>
+      </label>
+      <label>Noční obsazení max
+        <input type="number" name="nocni_max" min="0" value="{{ n.nocni_max if n else '' }}" required>
+      </label>
+      <label>Max směn v řadě
+        <input type="number" name="max_v_rade" min="1" value="{{ n.max_v_rade if n else '' }}" required>
+      </label>
+      <label>Max směn/měsíc
+        <input type="number" name="max_smen_mesic" min="1" value="{{ n.max_smen_mesic if n else '' }}" required>
+      </label>
+      <fieldset>
+        <legend>Váhy (optimalizace)</legend>
+        <label>Plné obsazení
+          <input type="number" name="plne_obsazeni" min="0" value="{{ n.plne_obsazeni if n else 10 }}">
+        </label>
+        <label>Férovost nočních
+          <input type="number" name="ferovost_nocni" min="0" value="{{ n.ferovost_nocni if n else 5 }}">
+        </label>
+        <label>Férovost víkendů
+          <input type="number" name="ferovost_vikendy" min="0" value="{{ n.ferovost_vikendy if n else 3 }}">
+        </label>
+        <label>Férovost celkových směn
+          <input type="number" name="ferovost_celkem" min="0" value="{{ n.ferovost_celkem if n else 4 }}">
+        </label>
+        <label>Penalizace neslučitelné dvojice
+          <input type="number" name="nekompatibilni_penalizace" min="0" value="{{ n.nekompatibilni_penalizace if n else 8 }}">
+        </label>
+      </fieldset>
+      <button type="submit">Uložit {{ nazev|lower }}</button>
+    </form>
+  {% endfor %}
+</main>
+{% endblock %}

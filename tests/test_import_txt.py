@@ -54,6 +54,8 @@ def test_parsovat_rozsah_ruzne_mezery_kolem_pomlcky(text, ocekavano):
         ("dovolená", "DOV", None),
         ("nemocná", "NEM", None),
         ("nemoc", "NEM", None),
+        ("školení", "SVZ", None),
+        ("skoleni v zarizeni", "SVZ", None),
         ("volno", "OST", None),
         ("lékař", "OST", None),
         ("ne denní směnu", "POZADAVEK", "D"),

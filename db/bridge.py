@@ -43,9 +43,15 @@ def config_pro_mesic(
     rok: int,
     mesic: int,
     config_yaml_cesta: str | Path = DEFAULT_CONFIG_YAML,
+    profil: str = "normalni",
 ) -> Config:
-    """Sestaví Config pro daný měsíc ze stavu DB + obsazení/pravidla/váhy
-    z config_yaml_cesta.
+    """Sestaví Config pro daný měsíc ze stavu DB + obsazení/pravidla/váhy.
+
+    Obsazení/pravidla/váhy se berou z DB tabulky nastaveni pro daný
+    profil ('normalni'/'krizovy', viz db/schema.sql), pokud tam admin
+    profil už uložil (úkol 5). Dokud neuložil, použije se
+    config_yaml_cesta - tak zůstává config.yaml jediným zdrojem pro
+    CLI/testy s fiktivními daty beze změny chování.
     """
     prvni_den = date(rok, mesic, 1)
     posledni_den = date(rok, mesic, calendar.monthrange(rok, mesic)[1])
@@ -119,19 +125,39 @@ def config_pro_mesic(
         else:
             nekompatibilni_dvojice.append(par)
 
-    with open(config_yaml_cesta, encoding="utf-8") as f:
-        vahy_config = yaml.safe_load(f)
+    nastaveni = repo.nastaveni_pro_profil(conn, profil)
+    if nastaveni is not None:
+        obsazeni = {
+            "denni_min": nastaveni.denni_min,
+            "denni_max": nastaveni.denni_max,
+            "nocni_min": nastaveni.nocni_min,
+            "nocni_max": nastaveni.nocni_max,
+        }
+        pravidla = {"max_v_rade": nastaveni.max_v_rade, "max_smen_mesic": nastaveni.max_smen_mesic}
+        vahy = {
+            "plne_obsazeni": nastaveni.plne_obsazeni,
+            "ferovost_nocni": nastaveni.ferovost_nocni,
+            "ferovost_vikendy": nastaveni.ferovost_vikendy,
+            "ferovost_celkem": nastaveni.ferovost_celkem,
+            "nekompatibilni_penalizace": nastaveni.nekompatibilni_penalizace,
+        }
+    else:
+        with open(config_yaml_cesta, encoding="utf-8") as f:
+            vahy_config = yaml.safe_load(f)
+        obsazeni = vahy_config["obsazeni"]
+        pravidla = vahy_config["pravidla"]
+        vahy = vahy_config.get("vahy", {})
 
     data = {
         "rok": rok,
         "mesic": mesic,
         "zamestnanci": zamestnanci_data,
-        "obsazeni": vahy_config["obsazeni"],
-        "pravidla": vahy_config["pravidla"],
+        "obsazeni": obsazeni,
+        "pravidla": pravidla,
         "nedostupnosti": {jmeno: sorted(dny) for jmeno, dny in nedostupnosti.items()},
         "nekompatibilni_dvojice": nekompatibilni_dvojice,
         "zakazane_dvojice": zakazane_dvojice,
-        "vahy": vahy_config.get("vahy", {}),
+        "vahy": vahy,
         "duvody_nedostupnosti": duvody_nedostupnosti,
         "zakazane_smeny": zakazane_smeny,
         "max_smen_mesic_override": max_smen_mesic_override,

@@ -23,17 +23,20 @@ from solver.schedule import CZ_DNY
 # nemají (na přání) - stačí barva, viz Bunka.text/trida. Neznámé/budoucí
 # typy se zkrátí obecně na první 3 znaky malými, ať nový typ nedostupnosti
 # mřížku nerozbije, i kdyby se sem zapomnělo doplnit zkratku.
-_ZKRATKA_NEDOSTUPNOSTI = {"OST": "ost", "POZADAVEK": "poz"}
+_ZKRATKA_NEDOSTUPNOSTI = {"OST": "ost", "SVZ": "svz", "POZADAVEK": "poz"}
 
 # Typy nedostupnosti bez textu v buňce - jen barva (viz Bunka.text).
 _BEZ_TEXTU_V_BUNCE = {"DOV", "NEM"}
 
 # Plný název pro title/tooltip buňky (viz web/sablony/mrizka.html) - i
 # nahled ho smí vidět, jde jen o rozepsání zkratky/barvy, ne o poznámku.
-_NAZEV_NEDOSTUPNOSTI = {
+# Veřejné (bez podtržítka) - sdílené i s formulářem nedostupností
+# (web/app.py, úkol 5), ať typ->název není na dvou místech.
+NAZEV_NEDOSTUPNOSTI = {
     "DOV": "Dovolená",
     "NEM": "Nemoc",
     "OST": "Ostatní",
+    "SVZ": "Školení v zařízení",
     "POZADAVEK": "Požadavek",
 }
 
@@ -56,7 +59,7 @@ class Bunka:
     def nazev_nedostupnosti(self) -> str | None:
         """Plný název typu pro title/tooltip - zkratka v buňce (text výš)
         by sama o sobě nemusela být čitelná."""
-        return _NAZEV_NEDOSTUPNOSTI.get(self.nedostupnost) if self.nedostupnost else None
+        return NAZEV_NEDOSTUPNOSTI.get(self.nedostupnost) if self.nedostupnost else None
 
     @property
     def trida(self) -> str:

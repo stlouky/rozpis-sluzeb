@@ -32,7 +32,11 @@ CREATE TABLE IF NOT EXISTS nedostupnost (
     zamestnanec_id INTEGER NOT NULL REFERENCES zamestnanec(id),
     od TEXT NOT NULL,           -- ISO datum, včetně
     do TEXT NOT NULL,           -- ISO datum, včetně
-    typ TEXT NOT NULL CHECK (typ IN ('DOV', 'NEM', 'OST', 'POZADAVEK')),
+    -- SVZ = školení v zařízení (úkol 5). CHECK na existující sloupec
+    -- vyžaduje v SQLite přetvoření tabulky, ne prosté ALTER TABLE ADD
+    -- COLUMN (na rozdíl od zamestnanec.zakaz_smeny/max_za_sebou výš) -
+    -- migrace na existující data/rozpis.db je popsaná v STAV-FAZE3.md.
+    typ TEXT NOT NULL CHECK (typ IN ('DOV', 'NEM', 'OST', 'SVZ', 'POZADAVEK')),
     poznamka TEXT,
     -- NULL = celý den nedostupný. 'D'/'N' = jen tenhle typ směny je
     -- zakázaný, zbylý typ zůstává k dispozici (viz solver.zakazane_smeny).
@@ -68,4 +72,25 @@ CREATE TABLE IF NOT EXISTS uzivatel (
     jmeno TEXT NOT NULL UNIQUE,
     heslo_hash TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('admin', 'nahled'))
+);
+
+-- Parametry pravidel pro generování (úkol 5) - dva pojmenované profily:
+-- "normalni" (běžný provoz, noční min 2) a "krizovy" (dočasně snížené
+-- noční minimum na 1, viz CLAUDE.md). Řádek pro daný profil vzniká, až
+-- ho admin poprvé uloží přes formulář - do té doby config_pro_mesic bere
+-- hodnoty z config.yaml beze změny (viz db/bridge.py) - config.yaml tak
+-- zůstává jen pro CLI/testy s fiktivními daty, produkční data žijí tady.
+CREATE TABLE IF NOT EXISTS nastaveni (
+    profil TEXT PRIMARY KEY CHECK (profil IN ('normalni', 'krizovy')),
+    denni_min INTEGER NOT NULL,
+    denni_max INTEGER NOT NULL,
+    nocni_min INTEGER NOT NULL,
+    nocni_max INTEGER NOT NULL,
+    max_v_rade INTEGER NOT NULL,
+    max_smen_mesic INTEGER NOT NULL,
+    plne_obsazeni INTEGER NOT NULL DEFAULT 10,
+    ferovost_nocni INTEGER NOT NULL DEFAULT 5,
+    ferovost_vikendy INTEGER NOT NULL DEFAULT 3,
+    ferovost_celkem INTEGER NOT NULL DEFAULT 4,
+    nekompatibilni_penalizace INTEGER NOT NULL DEFAULT 8
 );

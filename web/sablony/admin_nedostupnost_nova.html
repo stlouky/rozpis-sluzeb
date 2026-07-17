@@ -1,0 +1,42 @@
+{% extends "_layout.html" %}
+{% block titulek %}Nová nedostupnost – Rozpis služeb{% endblock %}
+{% block obsah %}
+{% include "_hlavicka.html" %}
+<main>
+  <h1>Nová nedostupnost</h1>
+  {% if chyba %}<p class="chyba">{{ chyba }}</p>{% endif %}
+  <form method="post" action="/admin/nedostupnosti/nova" class="formular">
+    <label>Zaměstnanec
+      <select name="zamestnanec_id" required>
+        {% for z in zamestnanci %}
+          <option value="{{ z.id }}">{{ z.jmeno }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Od
+      <input type="date" name="od" required>
+    </label>
+    <label>Do
+      <input type="date" name="do" required>
+    </label>
+    <label>Typ
+      <select name="typ" required>
+        {% for kod, nazev in typy.items() %}
+          <option value="{{ kod }}">{{ nazev }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Zakázaná směna (nepovinné - prázdné = celý den nedostupný)
+      <select name="zakazana_smena">
+        <option value="">celý den</option>
+        <option value="D">jen denní (noční zůstává k dispozici)</option>
+        <option value="N">jen noční (denní zůstává k dispozici)</option>
+      </select>
+    </label>
+    <label>Poznámka (nepovinné, jen pro admina)
+      <input type="text" name="poznamka">
+    </label>
+    <button type="submit">Přidat</button>
+  </form>
+</main>
+{% endblock %}

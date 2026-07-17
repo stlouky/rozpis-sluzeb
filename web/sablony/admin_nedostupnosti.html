@@ -1,0 +1,50 @@
+{% extends "_layout.html" %}
+{% block titulek %}Nedostupnosti – Rozpis služeb{% endblock %}
+{% block obsah %}
+{% include "_hlavicka.html" %}
+<main>
+  <div class="mesic-nav">
+    <h1>Nedostupnosti</h1>
+    <a href="/admin/nedostupnosti/nova">+ přidat nedostupnost</a>
+  </div>
+
+  {% if varovani %}
+    <p class="chyba">
+      Pozor: {{ varovani }} další nedostupnost{{ 'i' if varovani == 1 else 'i' if varovani < 5 else 'í' }}
+      se pro tohoto zaměstnance časově překrývá se zadaným intervalem. Uloženo
+      i tak - zkontroluj prosím, jestli je to v pořádku.
+    </p>
+  {% endif %}
+
+  <table class="seznam">
+    <thead>
+      <tr>
+        <th>Zaměstnanec</th>
+        <th>Od</th>
+        <th>Do</th>
+        <th>Typ</th>
+        <th>Poznámka</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for n in nedostupnosti %}
+      <tr>
+        <td>{{ jmeno_podle_id.get(n.zamestnanec_id, '?') }}</td>
+        <td>{{ n.od }}</td>
+        <td>{{ n.do }}</td>
+        <td>{{ nazvy_typu.get(n.typ, n.typ) }}{% if n.zakazana_smena %} ({{ n.zakazana_smena }}){% endif %}</td>
+        <td>{{ n.poznamka or '' }}</td>
+        <td>
+          <a href="/admin/nedostupnosti/{{ n.id }}/upravit">upravit</a>
+          <form method="post" action="/admin/nedostupnosti/{{ n.id }}/smazat"
+                onsubmit="return confirm('Opravdu smazat tuto nedostupnost?')">
+            <button type="submit">smazat</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</main>
+{% endblock %}

@@ -1,12 +1,14 @@
 """Testy datové vrstvy nad SQLite (fáze 2)."""
 
 import sqlite3
+from dataclasses import replace
 from datetime import date
 
 import pytest
 
 from db import repository as repo
 from db.bridge import config_pro_mesic, schedule_z_db, souhrn_vstupu
+from db.models import NastaveniProfilu
 from solver.core import generate_schedule
 from solver.schedule import Schedule
 
@@ -684,6 +686,80 @@ def test_zrusit_nedostupnost(conn):
     assert repo.nedostupnosti_v_obdobi(conn, date(2026, 8, 1), date(2026, 8, 31)) == []
 
 
+def test_nedostupnost_podle_id(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    ned_id = repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+
+    ned = repo.nedostupnost_podle_id(conn, ned_id)
+    assert ned.typ == "DOV"
+    assert repo.nedostupnost_podle_id(conn, ned_id + 999) is None
+
+
+def test_nedostupnost_typ_svz_projde(conn):
+    """SVZ = školení v zařízení (úkol 5) - CHECK na nedostupnost.typ
+    rozšířen, nesmí spadnout na IntegrityError."""
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    ned_id = repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "SVZ")
+    assert repo.nedostupnost_podle_id(conn, ned_id).typ == "SVZ"
+
+
+def test_upravit_nedostupnost(conn):
+    """Úkol 5: "doplnit editaci" - existující repo funkce uměly jen
+    add/remove, teď i přepis na místě."""
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    ned_id = repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+
+    repo.upravit_nedostupnost(
+        conn, ned_id, date(2026, 8, 5), date(2026, 8, 6), "OST", poznamka="oprava"
+    )
+
+    ned = repo.nedostupnost_podle_id(conn, ned_id)
+    assert ned.od == date(2026, 8, 5)
+    assert ned.do == date(2026, 8, 6)
+    assert ned.typ == "OST"
+    assert ned.poznamka == "oprava"
+
+
+def test_prekryvajici_nedostupnosti_najde_prekryv(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+
+    prekryv = repo.prekryvajici_nedostupnosti(conn, id_, date(2026, 8, 8), date(2026, 8, 12))
+    assert len(prekryv) == 1
+
+    bez_prekryvu = repo.prekryvajici_nedostupnosti(conn, id_, date(2026, 8, 10), date(2026, 8, 12))
+    assert bez_prekryvu == []
+
+
+def test_prekryvajici_nedostupnosti_ignoruje_jineho_zamestnance(conn):
+    id_alena = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    id_bedrich = repo.pridat_zamestnance(conn, "Bedřich", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_bedrich, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+
+    prekryv = repo.prekryvajici_nedostupnosti(conn, id_alena, date(2026, 8, 3), date(2026, 8, 9))
+    assert prekryv == []
+
+
+def test_vsechny_nedostupnosti(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2020, 1, 3), date(2020, 1, 9), "DOV")
+    repo.pridat_nedostupnost(conn, id_, date(2030, 1, 3), date(2030, 1, 9), "NEM")
+
+    vsechny = repo.vsechny_nedostupnosti(conn)
+    assert len(vsechny) == 2
+    assert vsechny[0].od == date(2030, 1, 3)  # nejnovější první
+
+
+def test_prekryvajici_nedostupnosti_vynecha_sebe_pri_editaci(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    ned_id = repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 9), "DOV")
+
+    prekryv = repo.prekryvajici_nedostupnosti(
+        conn, id_, date(2026, 8, 3), date(2026, 8, 9), vynechat_id=ned_id
+    )
+    assert prekryv == []
+
+
 def test_most_na_solver_end_to_end(conn):
     # stejná sestava 12 lidí jako v config.yaml, bez nedostupností -
     # ověřuje, že se DB stav dá reálně poslat do generate_schedule()
@@ -786,3 +862,103 @@ def test_souhrn_vstupu_ignoruje_nedostupnost_mimo_mesic(conn):
 
     _, pocet_nedostupnosti = souhrn_vstupu(conn, 2026, 8)
     assert pocet_nedostupnosti == 0
+
+
+# --- nastavení (úkol 5: parametry pravidel, profily normalni/krizovy) ---
+
+_NASTAVENI_KRIZOVY = NastaveniProfilu(
+    profil="krizovy", denni_min=2, denni_max=3, nocni_min=1, nocni_max=2,
+    max_v_rade=3, max_smen_mesic=16,
+)
+
+
+def test_nastaveni_pro_profil_bez_ulozeni_vraci_none(conn):
+    assert repo.nastaveni_pro_profil(conn, "normalni") is None
+
+
+def test_nastaveni_pro_profil_bez_tabulky_vraci_none(conn):
+    """Existující data/rozpis.db bez ruční migrace (viz STAV-FAZE3.md)
+    tabulku nastaveni vůbec nemá - CLI (na rozdíl od webu) to nesmí
+    shodit na syrový OperationalError, jen se chová jako bez uloženého
+    profilu (fallback na config.yaml)."""
+    conn.execute("DROP TABLE nastaveni")
+    assert repo.nastaveni_pro_profil(conn, "normalni") is None
+
+
+def test_ulozit_a_nacist_nastaveni(conn):
+    repo.ulozit_nastaveni(conn, _NASTAVENI_KRIZOVY)
+
+    nacteno = repo.nastaveni_pro_profil(conn, "krizovy")
+    assert nacteno == _NASTAVENI_KRIZOVY
+    assert repo.nastaveni_pro_profil(conn, "normalni") is None  # profily nezávislé
+
+
+def test_ulozit_nastaveni_je_upsert(conn):
+    repo.ulozit_nastaveni(conn, _NASTAVENI_KRIZOVY)
+    zmenene = replace(_NASTAVENI_KRIZOVY, nocni_min=2, max_smen_mesic=18)
+    repo.ulozit_nastaveni(conn, zmenene)
+
+    assert repo.nastaveni_pro_profil(conn, "krizovy") == zmenene
+
+
+def test_config_pro_mesic_bez_db_nastaveni_pouzije_config_yaml(conn):
+    for jmeno in ["Alena"] + ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert config.obsazeni.denni_min == 3  # z config.yaml, viz obsazeni.denni_min
+    assert config.pravidla.max_smen_mesic == 15
+
+
+def test_config_pro_mesic_pouzije_db_nastaveni_kdyz_existuje(conn):
+    for jmeno in ["Alena"] + ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    repo.ulozit_nastaveni(
+        conn,
+        NastaveniProfilu(
+            profil="normalni", denni_min=2, denni_max=2, nocni_min=1, nocni_max=1,
+            max_v_rade=2, max_smen_mesic=10,
+        ),
+    )
+
+    config = config_pro_mesic(conn, 2026, 8)  # výchozí profil="normalni"
+    assert config.obsazeni.denni_min == 2
+    assert config.obsazeni.denni_max == 2
+    assert config.pravidla.max_smen_mesic == 10
+
+
+def test_config_pro_mesic_profil_krizovy_nezavisi_na_normalni(conn):
+    for jmeno in ["Alena"] + ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    repo.ulozit_nastaveni(conn, _NASTAVENI_KRIZOVY)
+
+    # "normalni" profil nemá v DB řádek -> pořád spadne na config.yaml
+    config_normalni = config_pro_mesic(conn, 2026, 8, profil="normalni")
+    assert config_normalni.obsazeni.denni_min == 3
+
+    config_krizovy = config_pro_mesic(conn, 2026, 8, profil="krizovy")
+    assert config_krizovy.obsazeni.nocni_min == 1
+    assert config_krizovy.pravidla.max_smen_mesic == 16
+
+
+def test_zmena_nastaveni_se_propise_do_generovani(conn):
+    """Úkol 5, požadovaný test: "změna parametru se propíše do
+    generování" - obsazení nastavené v DB musí ovlivnit skutečně
+    vygenerovaný rozpis, ne jen Config objekt."""
+    for jmeno in ["Alena"] + ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    repo.ulozit_nastaveni(
+        conn,
+        NastaveniProfilu(
+            profil="normalni", denni_min=2, denni_max=2, nocni_min=1, nocni_max=1,
+            max_v_rade=3, max_smen_mesic=15,
+        ),
+    )
+
+    config = config_pro_mesic(conn, 2026, 8)
+    schedule = generate_schedule(config, time_limit_s=10.0)
+
+    for den in range(1, schedule.pocet_dni + 1):
+        pocet_d, pocet_n = schedule.obsazeni_dne(den)
+        assert pocet_d == 2
+        assert pocet_n == 1

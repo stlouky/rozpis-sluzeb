@@ -29,6 +29,7 @@ _TYP_VZORY: list[tuple[re.Pattern[str], str, str | None]] = [
     (re.compile(r"ne\s+no[cč]n", re.IGNORECASE), "POZADAVEK", "N"),
     (re.compile(r"dovolen", re.IGNORECASE), "DOV", None),
     (re.compile(r"nemoc", re.IGNORECASE), "NEM", None),
+    (re.compile(r"[sš]kolen", re.IGNORECASE), "SVZ", None),  # školení v zařízení
     (re.compile(r"l[ée]ka[rř]", re.IGNORECASE), "OST", None),
     (re.compile(r"voln", re.IGNORECASE), "OST", None),
 ]

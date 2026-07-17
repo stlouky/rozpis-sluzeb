@@ -22,7 +22,7 @@ Tvrdá:
 - max 2 noční v řadě, po nich povinně 2 dny volna (3 noční za sebou zakázáno)
 - max 3 směny v řadě, pak min 1 den volna
 - max 1 směna na osobu a den
-- respektovat nedostupnosti (DOV/NEM/OST/požadavky)
+- respektovat nedostupnosti (DOV/NEM/OST/SVZ/požadavky)
 - max ~15 směn na osobu za měsíc
 
 Měkká (optimalizace, s vahami):
