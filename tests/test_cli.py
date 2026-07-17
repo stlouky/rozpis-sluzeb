@@ -1,10 +1,17 @@
 """Testy CLI pro ruční práci s DB (db/cli.py)."""
 
+from datetime import date
+from pathlib import Path
+
 import pytest
 
 from db import repository as repo
 from db.auth import overit_heslo
 from db.cli import main
+
+FIXTURES = Path(__file__).parent / "fixtures" / "import_txt"
+ZAMESTNANCI_FIKTIVNI = FIXTURES / "zamestnanci_fiktivni.txt"
+POZADAVKY_FIKTIVNI = FIXTURES / "pozadavky_fiktivni.txt"
 
 VSICH_12 = [
     "Alena", "Bedřich", "Cyril", "Dana", "Emil", "Frantiska",
@@ -184,3 +191,76 @@ def test_cli_zmenit_heslo(tmp_path, capsys):
     uzivatel = repo.uzivatel_podle_id(conn, 1)
     assert overit_heslo("nove456", uzivatel.heslo_hash)
     assert not overit_heslo("puvodni123", uzivatel.heslo_hash)
+
+
+def _import_fiktivni(cesta_db):
+    main([
+        "--db", str(cesta_db), "import-txt",
+        str(ZAMESTNANCI_FIKTIVNI), str(POZADAVKY_FIKTIVNI), "--rok", "2026",
+    ])
+
+
+def test_import_txt_prida_zamestnance_a_nedostupnosti(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    with pytest.raises(SystemExit) as excinfo:
+        _import_fiktivni(cesta_db)
+    assert excinfo.value.code == 1  # jeden řádek s neznámým jménem v pozadavky_fiktivni.txt
+    vystup = capsys.readouterr().out
+
+    assert "3 zaměstnanců přidáno" in vystup
+    assert "5 nedostupností přidáno" in vystup
+    assert "neznámý zaměstnanec „Neznámá Osoba“" in vystup
+    assert "neznámý typ nepřítomnosti" in vystup.lower()  # OST fallback hláška
+
+    conn = repo.pripojit(cesta_db)
+    zamestnanci = repo.vsichni_zamestnanci(conn)
+    assert {z.jmeno for z in zamestnanci} == {
+        "Testovská Anna", "Vzorková Bedřiška Karolína", "Ukázka Cyril",
+    }
+    assert all(z.aktivni_od == date(2026, 1, 1) for z in zamestnanci)
+
+    id_testovska = next(z.id for z in zamestnanci if z.jmeno == "Testovská Anna")
+    id_vzorkova = next(z.id for z in zamestnanci if z.jmeno == "Vzorková Bedřiška Karolína")
+    id_uzazka = next(z.id for z in zamestnanci if z.jmeno == "Ukázka Cyril")
+
+    nedostupnosti = repo.nedostupnosti_v_obdobi(conn, date(2026, 1, 1), date(2026, 12, 31))
+    assert len(nedostupnosti) == 5
+
+    dovolena = next(n for n in nedostupnosti if n.zamestnanec_id == id_testovska and n.typ == "DOV")
+    assert dovolena.od == dovolena.do == date(2026, 3, 5)
+
+    pozadavek_d = next(
+        n for n in nedostupnosti if n.zamestnanec_id == id_testovska and n.zakazana_smena == "D"
+    )
+    assert pozadavek_d.typ == "POZADAVEK"
+    assert pozadavek_d.od == date(2026, 3, 7)
+
+    pozadavek_n = next(n for n in nedostupnosti if n.zamestnanec_id == id_vzorkova)
+    assert pozadavek_n.typ == "POZADAVEK"
+    assert pozadavek_n.zakazana_smena == "N"
+    assert pozadavek_n.od == date(2026, 3, 1)
+    assert pozadavek_n.do == date(2026, 3, 3)
+
+    ost_zaznamy = [n for n in nedostupnosti if n.zamestnanec_id == id_uzazka]
+    assert len(ost_zaznamy) == 2  # "volno" i neznámý popis oba padnou do OST
+    assert all(n.typ == "OST" for n in ost_zaznamy)
+
+
+def test_import_txt_je_idempotentni(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    with pytest.raises(SystemExit):
+        _import_fiktivni(cesta_db)
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit):
+        _import_fiktivni(cesta_db)
+    vystup_druhy = capsys.readouterr().out
+
+    assert "0 zaměstnanců přidáno" in vystup_druhy
+    assert "3 přeskočeno" in vystup_druhy
+    assert "0 nedostupností přidáno" in vystup_druhy
+    assert "„Testovská Anna“ už existuje" in vystup_druhy
+
+    conn = repo.pripojit(cesta_db)
+    assert len(repo.vsichni_zamestnanci(conn)) == 3
+    assert len(repo.nedostupnosti_v_obdobi(conn, date(2026, 1, 1), date(2026, 12, 31))) == 5

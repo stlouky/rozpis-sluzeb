@@ -150,6 +150,18 @@ def nastavit_max_smen_mesic(
     conn.commit()
 
 
+def zamestnanec_podle_jmena(conn: sqlite3.Connection, jmeno: str) -> Zamestnanec | None:
+    radek = conn.execute("SELECT * FROM zamestnanec WHERE jmeno = ?", (jmeno,)).fetchone()
+    return _zamestnanec_z_radku(radek) if radek else None
+
+
+def vsichni_zamestnanci(conn: sqlite3.Connection) -> list[Zamestnanec]:
+    """Úplně všichni zaměstnanci vč. bývalých (na rozdíl od aktivni_zamestnanci*
+    níž) - pro administraci ("i bývalí", úkol 4) a párování jmen při importu."""
+    radky = conn.execute("SELECT * FROM zamestnanec ORDER BY id").fetchall()
+    return [_zamestnanec_z_radku(r) for r in radky]
+
+
 def aktivni_zamestnanci(conn: sqlite3.Connection, datum: date) -> list[Zamestnanec]:
     """Zaměstnanci aktivní k jednomu konkrétnímu datu."""
     return aktivni_zamestnanci_v_obdobi(conn, datum, datum)

@@ -12,6 +12,7 @@ from solver.core import NelzeSestavitError, generate_schedule
 from . import repository as repo
 from .auth import hashovat_heslo
 from .bridge import DEFAULT_CONFIG_YAML, config_pro_mesic
+from .import_txt import najit_zamestnance, parsovat_radek_pozadavku, rozpoznat_typ
 
 DEFAULT_DB = Path(__file__).resolve().parent.parent / "rozpis.db"
 
@@ -85,6 +86,87 @@ def _cmd_zmenit_heslo(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
     repo.zmenit_heslo(conn, args.id, hashovat_heslo(heslo))
     print(f"Heslo uživatele {args.id} změněno")
+
+
+def _cmd_import_txt(args: argparse.Namespace) -> None:
+    conn = _pripojit_a_inicializovat(Path(args.db))
+    rok = args.rok
+    vychozi_aktivni_od = date(rok, 1, 1)
+
+    pridano_zamestnancu = 0
+    preskoceno_zamestnancu = 0
+    with open(args.zamestnanci_soubor, encoding="utf-8-sig") as f:
+        for radek in f:
+            jmeno = radek.strip()
+            if not jmeno:
+                continue
+            if repo.zamestnanec_podle_jmena(conn, jmeno) is not None:
+                print(f"Zaměstnanec „{jmeno}“ už existuje, přeskočeno.")
+                preskoceno_zamestnancu += 1
+                continue
+            repo.pridat_zamestnance(conn, jmeno, vychozi_aktivni_od)
+            pridano_zamestnancu += 1
+
+    # Načteno až PO importu zaměstnanců - stejným spuštěním nově přidaný
+    # zaměstnanec tak jde napárovat i na nedostupnost ze stejného souboru.
+    zamestnanci = repo.vsichni_zamestnanci(conn)
+
+    pridano_nedostupnosti = 0
+    chyby: list[str] = []
+    with open(args.pozadavky_soubor, encoding="utf-8-sig") as f:
+        for cislo_radku, syrovy_radek in enumerate(f, start=1):
+            radek = syrovy_radek.strip()
+            if not radek:
+                continue
+            try:
+                polozka = parsovat_radek_pozadavku(cislo_radku, radek, rok)
+            except ValueError as e:
+                chyby.append(str(e))
+                continue
+
+            zamestnanec = najit_zamestnance(zamestnanci, polozka.jmeno)
+            if zamestnanec is None:
+                chyby.append(f"řádek {cislo_radku}: neznámý zaměstnanec „{polozka.jmeno}“")
+                continue
+
+            vysledek = rozpoznat_typ(polozka.popis)
+            if vysledek is None:
+                print(
+                    f"Řádek {cislo_radku}: neznámý typ nepřítomnosti "
+                    f"„{polozka.popis}“ u {polozka.jmeno} - použit OST."
+                )
+                typ, zakazana_smena = "OST", None
+            else:
+                typ, zakazana_smena = vysledek
+
+            # Idempotence: (zaměstnanec, od, do, typ) už existuje -> přeskočit.
+            existujici = repo.nedostupnosti_v_obdobi(conn, polozka.od, polozka.do)
+            duplicita = any(
+                n.zamestnanec_id == zamestnanec.id
+                and n.od == polozka.od
+                and n.do == polozka.do
+                and n.typ == typ
+                for n in existujici
+            )
+            if duplicita:
+                continue
+
+            repo.pridat_nedostupnost(
+                conn, zamestnanec.id, polozka.od, polozka.do, typ, zakazana_smena=zakazana_smena
+            )
+            pridano_nedostupnosti += 1
+
+    print(
+        f"\nSouhrn importu: {pridano_zamestnancu} zaměstnanců přidáno, "
+        f"{preskoceno_zamestnancu} přeskočeno, "
+        f"{pridano_nedostupnosti} nedostupností přidáno."
+    )
+
+    if chyby:
+        print(f"\n{len(chyby)} chyba(y) při importu nedostupností:")
+        for chyba in chyby:
+            print(f"  - {chyba}")
+        raise SystemExit(1)
 
 
 def _cmd_seznam_zamestnancu(args: argparse.Namespace) -> None:
@@ -169,6 +251,19 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("id", type=int)
     p.add_argument("--heslo", help="bez zadání se bezpečně vyzve přes prompt (doporučeno)")
     p.set_defaults(func=_cmd_zmenit_heslo)
+
+    p = sub.add_parser(
+        "import-txt",
+        help="hromadný import zaměstnanců a nedostupností z textových souborů",
+    )
+    p.add_argument("zamestnanci_soubor")
+    p.add_argument("pozadavky_soubor")
+    p.add_argument(
+        "--rok", type=int, default=2026,
+        help="rok pro data bez roku v souboru nedostupností a výchozí aktivni_od "
+             "(YYYY-01-01), výchozí 2026",
+    )
+    p.set_defaults(func=_cmd_import_txt)
 
     p = sub.add_parser("seznam-zamestnancu", help="vypsat aktivní zaměstnance k datu")
     p.add_argument("--datum", help="YYYY-MM-DD, výchozí dnešek")
