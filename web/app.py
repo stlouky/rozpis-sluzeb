@@ -224,7 +224,7 @@ GENEROVANI_TIME_LIMIT_S = 30.0
 # efekt je deterministický výsledek, stejně jako v testech (viz zadani-faze3-web.md).
 GENEROVANI_SEED = 42
 
-PROFILY_NAZVY = {"normalni": "normální", "krizovy": "krizový"}
+PROFILY_NAZVY = {"normalni": "normální", "krizovy": "krizový", "optimalizovany": "optimalizovaný"}
 
 
 def _vyresit(conn: sqlite3.Connection, rok: int, mes: int, profil: str):
@@ -235,7 +235,8 @@ def _vyresit(conn: sqlite3.Connection, rok: int, mes: int, profil: str):
     znovu vyřeší se stejným seedem -> stejný výsledek, viz úkol 6)."""
     config = config_pro_mesic(conn, rok, mes, profil=profil)
     schedule = generate_schedule(
-        config, time_limit_s=GENEROVANI_TIME_LIMIT_S, random_seed=GENEROVANI_SEED
+        config, time_limit_s=GENEROVANI_TIME_LIMIT_S, random_seed=GENEROVANI_SEED,
+        prioritizovat_obsazeni=(profil == "optimalizovany"),
     )
     return config, schedule
 
@@ -433,8 +434,14 @@ def admin_zamestnanec_novy_odeslani(
     stitky = [STITEK_FYZICKA_VYPOMOC] if fyzicka_vypomoc else []
     strop = int(max_smen_mesic) if max_smen_mesic.strip() else None
     novy_id = repo.pridat_zamestnance(conn, jmeno.strip(), aktivni_od, stitky, strop)
+    # Formulář nabízí jen aktivní zaměstnance jako partnery (viz GET výš),
+    # ale mezi zobrazením a odesláním formuláře mohl partner zmizet
+    # (smazání) - tiché přeskočení neplatného id, ať se to nezhroutí na
+    # syrový sqlite3.IntegrityError (cizí klíč, viz audit).
+    znama_id = {z.id for z in repo.vsichni_zamestnanci(conn)}
     for partner_id in dvojice_s:
-        repo.pridat_dvojici(conn, novy_id, partner_id)
+        if partner_id in znama_id:
+            repo.pridat_dvojici(conn, novy_id, partner_id)
 
     return RedirectResponse(url="/admin/zamestnanci", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -598,6 +605,7 @@ def admin_nedostupnost_nova_odeslani(
     uzivatel: Uzivatel = Depends(vyzadovat_admina),
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
+    _zamestnanec_nebo_404(conn, zamestnanec_id)
     try:
         nova_id = repo.pridat_nedostupnost(
             conn, zamestnanec_id, od, do, typ, poznamka.strip() or None, _bez_smeny(zakazana_smena)
@@ -697,13 +705,25 @@ def admin_nedostupnost_smazat(
 
 
 # --- úkol 5: admin - parametry pravidel (profily normalni/krizovy) ---
+# + úkol 9c (na přání, upřesněno): "optimalizovany" - stejná tvrdá
+# pravidla i výchozí váhy jako normalni, ale priorita je CO NEJMÉNĚ
+# krizových dnů (dnů pod plným obsazením), teprve pak férovost.
+# Zkoušelo se nejdřív jen vysoká vahy.plne_obsazeni (matematicky by
+# měla dominovat) - reálně to ale ZHORŠILO výsledek (10 → 19 krizových
+# dnů na reálných datech), protože velký koeficient v jediném součtu
+# mate CP-SAT search heuristiky. Skutečná priorita je zajištěná
+# strukturálně: `_vyresit` níž volá solver s `prioritizovat_obsazeni=
+# True` pro tenhle profil (dvoufázové řešení - viz
+# solver/core.py:generate_schedule), ne velikostí vah - ty tak můžou
+# zůstat stejné jako u normalni (jen tiebreak/férovost mezi řešeními se
+# stejným nejlepším obsazením).
 
-PROFILY = ("normalni", "krizovy")
+PROFILY = ("normalni", "krizovy", "optimalizovany")
 
 
 def _validovat_nastaveni(n: NastaveniProfilu) -> str | None:
     """Kromě vnitřní konzistence (min<=max) i doménová minima z CLAUDE.md
-    ("denní: 3-4 lidi, noční: tvrdě 1-2 - platí každý den, oba profily").
+    ("denní: 3-4 lidi, noční: tvrdě 1-2 - platí každý den, všechny profily").
     Bez tohohle by šlo přes /admin/nastaveni tiše uložit profil, který
     tahle jinak neměnná pravidla poruší (viz audit) - solver.config.Config
     zná jen min<=max, ne konkrétní čísla, takže by to samo nechytilo."""
@@ -876,15 +896,20 @@ def rozpis_bunka_upravit(
 ):
     """Ruční úprava jedné buňky (klik cykluje hodnotu na frontendu,
     Enter odešle - viz mrizka.html) rovnou spustí přegenerování zbytku
-    měsíce OD tohoto dne (úkol 9 - na přání, ne diff/potvrzení jako
-    hlavní tlačítko "Vygenerovat": tahle akce uživatel už jednou
-    potvrdil tím, že ručně vybral hodnotu).
+    měsíce (úkol 9 - na přání, ne diff/potvrzení jako hlavní tlačítko
+    "Vygenerovat": tahle akce uživatel už jednou potvrdil tím, že ručně
+    vybral hodnotu).
 
-    Zamyká se JEN tenhle den zpětně (zamknout_do_dne na den-1) - den
-    samotné úpravy se nezamyká celý, jen právě upravená buňka (pokud má
-    směnu D/N - viz nastavit_smenu). Ostatní lidi ten den zůstávají
-    volní proměnní, aby je solver mohl doplnit/přeskupit (např. při
-    odebrání někoho ze směny má šanci najít náhradu - viz audit)."""
+    Na přání NENÍ ruční úprava trvalý zámek: je to jednorázová korekce,
+    ne požadavek. Zvolená D/N směna se zamkne JEN na dobu tohoto jednoho
+    přepočtu (aby ji přegenerování hned nepřepsalo něčím jiným) a hned
+    po dopočtu se zase odemkne - takže příští "Vygenerovat rozpis" i
+    další ruční úprava s ní může znovu volně hýbat, omyl jde vzít zpět.
+    Trvale se zamyká jen skutečná minulost (zamknout_minulost), stejně
+    jako u hlavního tlačítka. Ostatní lidi ve stejný den zůstávají volní
+    proměnní, aby je solver mohl doplnit/přeskupit (např. při odebrání
+    někoho ze směny má šanci najít náhradu - viz audit)."""
+    _zamestnanec_nebo_404(conn, zamestnanec_id)
     rok, mes = _rozlozit_mesic(mesic)
 
     chyba = _nastavit_hodnotu_bunky(conn, zamestnanec_id, datum, hodnota)
@@ -894,18 +919,20 @@ def rozpis_bunka_upravit(
         # jde jen ručně sestavený. Tiše návrat, stav v DB je platný.
         return RedirectResponse(url=f"/rozpis?mesic={mesic}", status_code=status.HTTP_303_SEE_OTHER)
 
+    repo.zamknout_minulost(conn, rok, mes)
+
+    docasne_zamcena_id: int | None = None
     if hodnota in ("D", "N"):
-        # Zvolenou směnu je potřeba i zamknout, jinak by ji přegenerování
-        # o pár řádků níž mohlo rovnou přepsat něčím jiným.
         smena = repo.smena_pro_den(conn, zamestnanec_id, datum)
-        if smena is not None:
+        if smena is not None and not smena.locked:
             repo.zamknout_smeny(conn, [smena.id])
-    if datum.day > 1:
-        repo.zamknout_do_dne(conn, rok, mes, datum.day - 1)
+            docasne_zamcena_id = smena.id
 
     try:
         config, schedule = _vyresit(conn, rok, mes, profil)
     except NelzeSestavitError as e:
+        if docasne_zamcena_id is not None:
+            repo.odemknout_smeny(conn, [docasne_zamcena_id])
         config_bez_reseni = config_pro_mesic(conn, rok, mes, profil=profil)
         return _vykreslit_rozpis(
             request, conn, uzivatel, rok, mes, je_admin=True,
@@ -914,6 +941,9 @@ def rozpis_bunka_upravit(
             profil_generovani_nazev=PROFILY_NAZVY.get(profil, profil),
             ma_zamcene_smeny=bool(config_bez_reseni.pevne_smeny),
         )
+
+    if docasne_zamcena_id is not None:
+        repo.odemknout_smeny(conn, [docasne_zamcena_id])
 
     preskocene = repo.ulozit_rozpis(conn, schedule)
     url = (

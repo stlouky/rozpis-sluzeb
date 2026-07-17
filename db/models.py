@@ -75,9 +75,9 @@ class Uzivatel:
 @dataclass(frozen=True)
 class NastaveniProfilu:
     """Parametry pravidel pro jeden pojmenovaný profil ('normalni' /
-    'krizovy', viz db/schema.sql) - obsazení, max_v_rade, max_smen_mesic
-    a váhy pohromadě, ve stejném tvaru, jaký solver.config.config_from_dict
-    čeká pod klíči obsazeni/pravidla/vahy."""
+    'krizovy' / 'optimalizovany', viz db/schema.sql) - obsazení,
+    max_v_rade, max_smen_mesic a váhy pohromadě, ve stejném tvaru, jaký
+    solver.config.config_from_dict čeká pod klíči obsazeni/pravidla/vahy."""
 
     profil: str
     denni_min: int

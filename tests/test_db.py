@@ -1176,6 +1176,14 @@ def test_ulozit_nastaveni_je_upsert(conn):
     assert repo.nastaveni_pro_profil(conn, "krizovy") == zmenene
 
 
+def test_ulozit_nastaveni_prijme_profil_optimalizovany(conn):
+    """Úkol 9c (na přání): třetí profil - priorita plné obsazení 4D/2N -
+    CHECK v schema.sql musí "optimalizovany" povolit vedle normalni/krizovy."""
+    nastaveni = replace(_NASTAVENI_KRIZOVY, profil="optimalizovany", plne_obsazeni=30)
+    repo.ulozit_nastaveni(conn, nastaveni)
+    assert repo.nastaveni_pro_profil(conn, "optimalizovany") == nastaveni
+
+
 def test_config_pro_mesic_bez_db_nastaveni_pouzije_config_yaml(conn):
     for jmeno in ["Alena"] + ZBYVAJICI_11:
         repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))

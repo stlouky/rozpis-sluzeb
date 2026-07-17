@@ -133,6 +133,24 @@ def test_vytvoreni_s_neslucitelnou_dvojici(klient):
     )
 
 
+def test_vytvoreni_s_neexistujicim_partnerem_neselze(klient):
+    """Audit: formulář nabízí jen aktivní partnery, ale mezi zobrazením a
+    odesláním mohl partner zmizet - neplatné id se dřív poslalo rovnou do
+    INSERT a spadlo na syrový sqlite3.IntegrityError (cizí klíč) → 500."""
+    odpoved = klient.post(
+        "/admin/zamestnanci/novy",
+        data={
+            "jmeno": "Ivana",
+            "aktivni_od": "2026-03-01",
+            "dvojice_s": ["999999"],
+        },
+    )
+    assert odpoved.status_code == 200
+    ivana = repo.zamestnanec_podle_jmena(_conn(klient), "Ivana")
+    assert ivana is not None
+    assert repo.dvojice_vsechny(_conn(klient)) == []
+
+
 def test_vytvoreni_s_max_smen_mesic(klient):
     klient.post(
         "/admin/zamestnanci/novy",

@@ -423,6 +423,58 @@ def test_zakazana_dvojice_nikdy_nesdili_smenu(zakladni_schedule):
             assert s_cyril != s_karel
 
 
+# --- prioritizovat_obsazeni (úkol 9c, na přání upřesněno: "optimalizovany"
+# profil = co nejméně krizových dnů, ne jen vyšší váha plne_obsazeni) ---
+
+def _config_s_napetim():
+    """Config, kde je vyšší váha ferovost_celkem v napětí s plným
+    obsazením (nedostatek lidí kvůli rozsáhlým nedostupnostem tlačí
+    solver k volbě mezi "míň plných dnů, ale féroveji rozdělené směny"
+    a naopak) - na zakladni_config (bez napětí) by prioritizovat_obsazeni
+    nešlo od jednofázového řešení odlišit."""
+    return zakladni_config(
+        nedostupnosti={
+            "Alena": list(range(1, 20)),
+            "Bedrich": list(range(10, 31)),
+            "Cyril": list(range(1, 15)),
+            "Dana": list(range(20, 31)),
+        },
+        vahy=dict(plne_obsazeni=10, ferovost_nocni=5, ferovost_vikendy=3,
+                  ferovost_celkem=50, nekompatibilni_penalizace=8),
+    )
+
+
+def _pocet_plnych_d(config, schedule):
+    return sum(
+        1 for den in range(1, schedule.pocet_dni + 1)
+        if schedule.obsazeni_dne(den)[0] == config.obsazeni.denni_max
+    )
+
+
+def test_prioritizovat_obsazeni_nikdy_nedopadne_hur_nez_bez_neho():
+    # Regrese: dřív fáze 2 hledala přípustný bod od nuly (jiný cíl = jiné
+    # pořadí prohledávání) a na tomhle configu ve zbylém čase žádný
+    # nenašla (UNKNOWN), i když šlo o config se známým řešením (fáze 1 ho
+    # sama našla) - NelzeSestavitError i přes existující řešení. Oprava:
+    # fázi 2 se dá řešení fáze 1 jako hint (viz solver/core.py).
+    config = _config_s_napetim()
+    schedule = generate_schedule(config, time_limit_s=TIME_LIMIT, random_seed=42,
+                                  prioritizovat_obsazeni=True)
+    assert schedule.status in ("OPTIMAL", "FEASIBLE")
+
+
+def test_prioritizovat_obsazeni_neztrati_plne_dny_kvuli_ferovosti():
+    # Se stejnou (vysokou) vahou ferovost_celkem by jednofázový cíl mohl
+    # obětovat plně obsazený den ve prospěch férovějšího rozdělení -
+    # dvoufázové řešení to má zakázané tvrdým omezením (fáze 2 nesmí jít
+    # pod obsazení, které fáze 1 prokazatelně umí).
+    config = _config_s_napetim()
+    bez_priority = generate_schedule(config, time_limit_s=TIME_LIMIT, random_seed=42)
+    s_prioritou = generate_schedule(config, time_limit_s=TIME_LIMIT, random_seed=42,
+                                     prioritizovat_obsazeni=True)
+    assert _pocet_plnych_d(config, s_prioritou) >= _pocet_plnych_d(config, bez_priority)
+
+
 def test_zakazana_dvojice_je_tvrda_i_kdyz_to_jinak_nejde():
     # na rozdíl od nekompatibilni_dvojice (měkké - penalizace, ale spolu smí,
     # když jinak nejde) je zakazane_dvojice nesplnitelné, i kdyby to znamenalo

@@ -74,14 +74,17 @@ CREATE TABLE IF NOT EXISTS uzivatel (
     role TEXT NOT NULL CHECK (role IN ('admin', 'nahled'))
 );
 
--- Parametry pravidel pro generování (úkol 5) - dva pojmenované profily:
--- "normalni" (běžný provoz, noční min 2) a "krizovy" (dočasně snížené
--- noční minimum na 1, viz CLAUDE.md). Řádek pro daný profil vzniká, až
--- ho admin poprvé uloží přes formulář - do té doby config_pro_mesic bere
--- hodnoty z config.yaml beze změny (viz db/bridge.py) - config.yaml tak
--- zůstává jen pro CLI/testy s fiktivními daty, produkční data žijí tady.
+-- Parametry pravidel pro generování (úkol 5, rozšířeno úkol 9c) - tři
+-- pojmenované profily: "normalni" (běžný provoz, noční min 2), "krizovy"
+-- (dočasně snížené noční minimum na 1, viz CLAUDE.md) a "optimalizovany"
+-- (stejná tvrdá pravidla jako normalni, ale váhy posunuté ve prospěch
+-- plného obsazení 4D/2N na úkor férovosti - viz web/app.py:VYCHOZI_VAHY).
+-- Řádek pro daný profil vzniká, až ho admin poprvé uloží přes formulář -
+-- do té doby config_pro_mesic bere hodnoty z config.yaml beze změny (viz
+-- db/bridge.py) - config.yaml tak zůstává jen pro CLI/testy s fiktivními
+-- daty, produkční data žijí tady.
 CREATE TABLE IF NOT EXISTS nastaveni (
-    profil TEXT PRIMARY KEY CHECK (profil IN ('normalni', 'krizovy')),
+    profil TEXT PRIMARY KEY CHECK (profil IN ('normalni', 'krizovy', 'optimalizovany')),
     denni_min INTEGER NOT NULL,
     denni_max INTEGER NOT NULL,
     nocni_min INTEGER NOT NULL,

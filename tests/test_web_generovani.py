@@ -77,6 +77,28 @@ def _potvrdit(klient, mesic="2026-08", profil="normalni"):
     )
 
 
+def test_optimalizovany_profil_zapne_prioritizaci_obsazeni(klient, monkeypatch):
+    """Úkol 9c (na přání, upřesněno): "optimalizovany" musí solveru
+    předat prioritizovat_obsazeni=True (dvoufázové řešení, viz
+    solver/core.py) - jen vyšší váha plne_obsazeni na tohle nestačila
+    (viz komentář u web/app.py:_vyresit)."""
+    zachycene_kwargs = {}
+    puvodni = web_app_modul.generate_schedule
+
+    def zaznamenej(config, **kwargs):
+        zachycene_kwargs.update(kwargs)
+        return puvodni(config, **kwargs)
+
+    monkeypatch.setattr(web_app_modul, "generate_schedule", zaznamenej)
+
+    _generovat(klient, profil="optimalizovany")
+    assert zachycene_kwargs.get("prioritizovat_obsazeni") is True
+
+    zachycene_kwargs.clear()
+    _generovat(klient, profil="normalni")
+    assert zachycene_kwargs.get("prioritizovat_obsazeni") is False
+
+
 def test_nahled_dostane_403(klient_nahled):
     odpoved = _generovat(klient_nahled)
     assert odpoved.status_code == 403

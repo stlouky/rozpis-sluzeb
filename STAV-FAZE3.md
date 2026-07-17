@@ -44,8 +44,12 @@ vyžádání jako obvykle (další na řadě je Úkol 4).
 | — | `5c8ef26` | oprava (audit appky): PDF popiska "Řešení: ULOZENO" na nástěnce nahrazena vynecháním věty pro neřešená data; dočasný PDF soubor se uklidí i při výjimce |
 | 8 | `dd428dd` | admin: ruční úpravy - klik na nezamčenou buňku cykluje volno→D→N→volno (`POST /rozpis/bunka/{id}/{datum}`); nový `solver/validace.py` (validovat_rozpis) kontroluje tvrdá pravidla na hotovém rozpisu a jen OZNAČÍ porušení (neblokuje uložení - realita > solver); `Schedule.zamcene` nové pole, vyplňuje ho jen `schedule_z_db`. **UI editace buňky přepracováno v Úkolu 9 níž** - zámečky v buňkách i tenhle jednoduchý cyklus jsou pryč. |
 | 9 | `3d840d9` | zamykání + přegenerování zbytku + diff - solver bere zamčené směny jako pevný vstup (`Config.pevne_smeny`), takže "vygenerovat" a "přegenerovat zbytek" jsou fakticky stejná operace; `POST /rozpis/generovat` zamkne minulost, spočítá diff proti uloženému stavu, neprázdný diff čeká na potvrzení (`/rozpis/generovat/potvrdit`); nesplnitelnost po zamčení nabídne "Odemknout budoucí zamčené směny". **Ruční úprava buňky přepracována na přání** (viz níž) - žádné zámečky/rozsah v UI, zatržítko "Povolit ruční úpravu" + JS cyklus volno/D/N/DOV/OST/NEM potvrzený Enterem, který rovnou přegeneruje a uloží zbytek měsíce OD upraveného dne (jiní lidé ten den zůstávají volní, aby šlo doplnit náhradu po odebrání někoho ze směny) |
+| — | *(nekomitnuto)* | **oprava (na přání po testování Úkolu 9):** ruční úprava buňky (`POST /rozpis/bunka/...`) už NEZAMYKÁ upravenou D/N směnu ani dny před ní natrvalo - jen dočasně přes `Config.pevne_smeny` pro JEDEN doprovodný přepočet (zamkne→vyřeší→odemkne), pak zůstane v DB nezamčená. Trvale se zamyká jen skutečná minulost (`zamknout_minulost`), stejně jako u hlavního tlačítka "Vygenerovat". Důvod: omylem kliknutá buňka se dřív nedala vzít zpět (natrvalo zamčená, žádné UI na odemknutí po odstranění zámečků z mřížky) - přesně to uživatel po testování nahlásil. `<td>` s `not bunka.editovatelna` teď dostává `zamcena` CSS třídu obecně (dřív jen skutečně zamčené), legenda/nápověda vysvětlují, že vícedenní/mimo-cyklus nedostupnost (DOV rozsah, celoměsíční NEM/POZADAVEK) se klikem záměrně nedá upravit - jde jen přes Nedostupnosti. |
+| — | *(nekomitnuto)* | **oprava (skutečná příčina "nejde kliknout"):** volná (prázdná) buňka měla klikací `<button>` úplně BEZ obsahu (`bunka.text` je pro volno `""`) - v prohlížeči vypadala, že tam není co kliknout, přidat směnu na volný den tak prakticky nešlo (na rozdíl od D/N/DOV/NEM buněk, které aspoň barvou/textem naznačí obsah). Zjištěno až přímým vykreslením HTML (TestClient), ne jen code review. Oprava: prázdná buňka teď v tlačítku ukáže ztlumenou tečku (`&middot;`, třída `bunka-tlacitko-prazdna`) - DOV/NEM zůstávají beze změny (mají barvu, tečka by kazila zavedený "jen barva" vzhled). Prohození služeb mezi lidmi jde přes dvě takové úpravy (jednomu na volno, druhému na D/N) - napověda pod mřížkou to teď zmiňuje. |
+| 9c | *(nekomitnuto)* | nový profil **"optimalizovany"** (na přání, upřesněno: "optimalizovat" = co nejméně krizových dnů, ne jen vyšší váha) - CHECK na `nastaveni.profil` rozšířen o třetí hodnotu (přetvoření tabulky, migrace na `data/rozpis.db` provedena - viz sekce níž), `<select>` na mřížce i formulář `/admin/nastaveni` o profil rozšířené. Priorita "co nejméně krizových dnů" je řešená **dvoufázově** v solveru (`solver/core.py:generate_schedule(..., prioritizovat_obsazeni=True)`), ne vyšší vahou - zkoušelo se nejdřív jen vysoká `vahy.plne_obsazeni` (matematicky dominantní), ale na reálných datech to ZHORŠILO výsledek (10 → 19 krizových dnů, CP-SAT search heuristiky jsou citlivé na rozptyl velikostí koeficientů). Fáze 1 (1/3 času) najde nejvyšší dosažitelný počet plně obsazených D/N slotů bez férovosti v cíli, fáze 2 (2/3 času) ho vynutí jako tvrdé minimum a doladí férovost - s `AddHint` řešením fáze 1 (jinak fáze 2 na složitějším zadání nestíhala najít přípustný bod znovu od nuly - viz `tests/test_solver.py::test_prioritizovat_obsazeni_nikdy_nedopadne_hur_nez_bez_neho`). Na reálných datech: 7 krizových dnů místo 10 u normálního profilu. |
+| — | *(nekomitnuto)* | **audit appky:** 3 nálezy - `POST /rozpis/bunka/...`, `/admin/nedostupnosti/nova` a `/admin/zamestnanci/novy` (dvojice_s) nekontrolovaly, že zadané id zaměstnance existuje, než ho poslaly do INSERTu - neplatné id (stará URL po smazání zaměstnance, zmizelý partner mezi zobrazením a odesláním formuláře) spadlo na syrový `sqlite3.IntegrityError` (cizí klíč) → HTTP 500 místo čitelné chyby/404 jako u ostatních rout. |
 
-**Testy:** 352, celá sada zelená. Spouštět vždy
+**Testy:** 352+, celá sada zelená. Spouštět vždy
 `.venv/bin/python -m pytest -q` (běží ~3–4 min kvůli solver testům).
 
 ## Reálný stav dat (`data/rozpis.db`, srpen 2026)
@@ -152,6 +156,27 @@ se SVZ by ale spadlo na syrový `sqlite3.IntegrityError` (CHECK na starém
 rovnou, ne až při prvním selhání. Vzor stejný jako u
 `zakaz_smeny`/`max_za_sebou` (úkol 4 příprava) - "ověřeno na kopii DB
 předem" než na ostrá data.
+
+## ✅ Migrace na `data/rozpis.db` provedena (úkol 9c, profil "optimalizovany")
+
+Stejný vzor jako výš (CHECK vyžaduje přetvoření tabulky). `nastaveni`
+byla v reálné DB prázdná (0 řádků), takže šlo jen o `RENAME`+`CREATE`+
+`INSERT SELECT`+`DROP`, žádná data se neztratila. Ověřeno:
+`PRAGMA integrity_check` = ok, `foreign_key_check` = []. Záloha:
+`data/rozpis.db.pred-migraci-optimalizovany-profil.bak`.
+
+## ✅ Kontrola `požadavky.txt` proti DB (na vyžádání, 17.7.2026)
+
+Uživatel chtěl porovnat `nedostupnost` v DB s originálním importním
+souborem `požadavky.txt`, ať se najdou záznamy omylem vzniklé
+testováním ruční úpravy buňky. Soubor v repu chybí (gitignorovaný,
+nejspíš smazaný po importu), uživatel jeho obsah vložil přímo do
+konverzace. Ručně ověřeno proti pravidlům `db/import_txt.py`
+(rozpoznat_typ/je_konec_pomeru) - **výsledek: shoda, nic navíc ani
+chybějícího**. 19 z 21 řádků → 19 záznamů `nedostupnost`, typ/rozsah/
+`zakazana_smena` sedí přesně; zbylé 2 řádky ("končí") správně nejsou
+nedostupnost, ale `aktivni_do=2026-08-16` u Giňové i Michnové. Obava z
+testováním omylem vzniklých požadavků se nepotvrdila.
 
 ## Na co si dát pozor příště
 

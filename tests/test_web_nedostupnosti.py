@@ -77,6 +77,22 @@ def test_vytvoreni_nedostupnosti(klient):
     assert nedostupnosti[0].typ == "DOV"
 
 
+def test_vytvoreni_nedostupnosti_neexistujiciho_zamestnance_404(klient):
+    """Audit: bez kontroly by INSERT spadl na syrový sqlite3.IntegrityError
+    (cizí klíč) → 500, místo čitelné chyby jako u ostatních rout."""
+    odpoved = klient.post(
+        "/admin/nedostupnosti/nova",
+        data={
+            "zamestnanec_id": 999999,
+            "od": "2026-08-03",
+            "do": "2026-08-09",
+            "typ": "DOV",
+        },
+    )
+    assert odpoved.status_code == 404
+    assert repo.vsechny_nedostupnosti(_conn(klient)) == []
+
+
 def test_vytvoreni_nedostupnosti_typ_svz(klient):
     odpoved = klient.post(
         "/admin/nedostupnosti/nova",
@@ -310,6 +326,25 @@ def test_ulozeni_nastaveni_krizovy_profil_nocni_min_1_projde(klient):
     )
     assert odpoved.status_code == 200
     assert repo.nastaveni_pro_profil(_conn(klient), "krizovy").nocni_min == 1
+
+
+def test_ulozeni_nastaveni_optimalizovany_profil(klient):
+    """Úkol 9c (na přání): třetí profil - priorita plné obsazení 4D/2N."""
+    odpoved = klient.post(
+        "/admin/nastaveni/optimalizovany",
+        data={
+            "denni_min": "3", "denni_max": "4", "nocni_min": "2", "nocni_max": "2",
+            "max_v_rade": "3", "max_smen_mesic": "15", "plne_obsazeni": "30",
+        },
+    )
+    assert odpoved.status_code == 200
+    nastaveni = repo.nastaveni_pro_profil(_conn(klient), "optimalizovany")
+    assert nastaveni.plne_obsazeni == 30
+
+
+def test_nastaveni_formular_predvyplni_optimalizovany_vyssi_vahou(klient):
+    odpoved = klient.get("/admin/nastaveni")
+    assert "Optimalizovaný profil" in odpoved.text
 
 
 def test_neznamy_profil_404(klient):

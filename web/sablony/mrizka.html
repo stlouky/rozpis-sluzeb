@@ -64,6 +64,7 @@
           <select name="profil">
             <option value="normalni">normální</option>
             <option value="krizovy">krizový</option>
+            <option value="optimalizovany">optimalizovaný</option>
           </select>
         </label>
         <button type="submit" id="btn-generovat">Vygenerovat rozpis</button>
@@ -103,11 +104,11 @@
               {% set den = mrizka.dny[loop.index0] %}
               {% set datum = '%04d-%02d-%02d'|format(mrizka.rok, mrizka.mesic, den) %}
               {% set hodnota_bunky = bunka.smena or bunka.nedostupnost or '' %}
-              <td class="bunka{% if mrizka.vikendy[loop.index0] %} vikend{% endif %}{% if bunka.trida %} {{ bunka.trida }}{% endif %}{% if bunka.duvod_poruseni %} porusena{% endif %}{% if bunka.zamcena %} zamcena{% endif %}"{% if bunka.nadpis %} title="{{ bunka.nadpis }}"{% endif %}>{%- if je_admin and radek.zamestnanec_id and bunka.editovatelna %}
+              <td class="bunka{% if mrizka.vikendy[loop.index0] %} vikend{% endif %}{% if bunka.trida %} {{ bunka.trida }}{% endif %}{% if bunka.duvod_poruseni %} porusena{% endif %}{% if je_admin and not bunka.editovatelna %} zamcena{% endif %}"{% if bunka.nadpis %} title="{{ bunka.nadpis }}"{% endif %}>{%- if je_admin and radek.zamestnanec_id and bunka.editovatelna %}
                 <form method="post" action="/rozpis/bunka/{{ radek.zamestnanec_id }}/{{ datum }}" class="bunka-formular">
                   <input type="hidden" name="mesic" value="{{ '%04d-%02d'|format(mrizka.rok, mrizka.mesic) }}">
                   <input type="hidden" name="hodnota" value="{{ hodnota_bunky }}">
-                  <button type="button" class="bunka-tlacitko" data-hodnota="{{ hodnota_bunky }}" disabled>{{ bunka.text }}</button>
+                  <button type="button" class="bunka-tlacitko{% if hodnota_bunky == '' %} bunka-tlacitko-prazdna{% endif %}" data-hodnota="{{ hodnota_bunky }}" disabled>{%- if bunka.text -%}{{ bunka.text }}{%- elif hodnota_bunky == '' -%}&middot;{%- endif -%}</button>
                 </form>
               {%- else -%}{{ bunka.text }}{%- endif %}</td>
             {% endfor -%}
@@ -139,12 +140,17 @@
     <span class="stitek nedostupnost-jina">ost/poz</span> ostatní nedostupnost
     <span class="stitek vikend">víkend</span>
     <span class="stitek bunka porusena">D</span> porušuje tvrdé pravidlo
-    {% if je_admin %}<span class="stitek bunka zamcena">D</span> zamčeno - nejde upravit{% endif %}
+    {% if je_admin %}<span class="stitek bunka zamcena">D</span> zamčeno/needitovatelné - nejde upravit{% endif %}
   </p>
   {% if je_admin %}
     <p class="napoveda-editace">
-      Po zatržení "Povolit ruční úpravu": klik na buňku cykluje volno &rarr; D &rarr; N &rarr; DOV &rarr; OST &rarr; NEM,
-      Enter potvrdí a rovnou přegeneruje a uloží zbytek měsíce od tohoto dne dál.
+      Po zatržení "Povolit ruční úpravu": klik na buňku cykluje volno &rarr; D &rarr; N &rarr; DOV &rarr; OST &rarr; NEM
+      (prázdné volno má klikací tečku &middot;, ať jde poznat, že tam jde kliknout), Enter potvrdí a rovnou přegeneruje
+      a uloží zbytek měsíce (úprava je jednorázová korekce - nic se natrvalo nezamyká, takže jde kdykoli přepsat další
+      úpravou nebo přegenerováním). Prohození služeb mezi dvěma lidmi jde přes dvě takové úpravy - u jednoho zpátky
+      na volno, u druhého na D/N. Ztlumené buňky (viz legenda "zamčeno/needitovatelné") klikem upravit nejdou - buď je
+      den skutečně zamčený, nebo je součástí vícedenního záznamu (dovolená, nemoc, požadavek), který se mění jen přes
+      Nedostupnosti, ať se omylem nezkrátí.
     </p>
   {% endif %}
 </main>

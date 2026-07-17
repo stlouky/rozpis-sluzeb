@@ -48,8 +48,8 @@ def config_pro_mesic(
     """Sestaví Config pro daný měsíc ze stavu DB + obsazení/pravidla/váhy.
 
     Obsazení/pravidla/váhy se berou z DB tabulky nastaveni pro daný
-    profil ('normalni'/'krizovy', viz db/schema.sql), pokud tam admin
-    profil už uložil (úkol 5). Dokud neuložil, použije se
+    profil ('normalni'/'krizovy'/'optimalizovany', viz db/schema.sql),
+    pokud tam admin profil už uložil (úkol 5). Dokud neuložil, použije se
     config_yaml_cesta - tak zůstává config.yaml jediným zdrojem pro
     CLI/testy s fiktivními daty beze změny chování.
     """

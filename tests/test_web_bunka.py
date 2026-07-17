@@ -72,13 +72,23 @@ def test_nahled_dostane_403(klient_nahled):
     assert odpoved.status_code == 403
 
 
-def test_upravit_bunku_na_denni_ulozi_a_zamkne(klient):
+def test_upravit_bunku_neexistujiciho_zamestnance_404(klient):
+    """Audit: bez kontroly by INSERT do smena spadl na syrový
+    sqlite3.IntegrityError (cizí klíč) → 500."""
+    odpoved = _upravit(klient, "D", zamestnanec_id=999999)
+    assert odpoved.status_code == 404
+
+
+def test_upravit_bunku_na_denni_ulozi_ale_nezamkne_natrvalo(klient):
+    """Na přání: ruční úprava je jednorázová korekce, ne trvalý
+    požadavek - i po přegenerování jde bez dalšího zásahu znovu
+    přepsat (např. dalším kliknutím nebo hlavním tlačítkem)."""
     odpoved = _upravit(klient, "D")
     assert odpoved.status_code == 200
 
     smena = repo.smena_pro_den(_conn(klient), klient.id_alena, date(2026, 8, 25))
     assert smena.typ == "D"
-    assert smena.locked is True  # ručně zvolená hodnota se hned zamkne
+    assert smena.locked is False
 
 
 def test_upravit_bunku_na_nocni(klient):
@@ -152,13 +162,26 @@ def test_admin_vidi_klikaci_formular_pro_editovatelnou_bunku(klient):
     assert f"/rozpis/bunka/{klient.id_alena}/2026-08-25" in odpoved.text
 
 
+def test_prazdna_volno_bunka_ma_klikaci_tecku(klient):
+    """Audit: prázdné tlačítko (bez textu) v prohlížeči vypadalo, že tam
+    není co kliknout - přidat službu na volný den tak prakticky nešlo."""
+    odpoved = klient.get("/rozpis?mesic=2026-08")
+    zacatek = odpoved.text.find(f"/rozpis/bunka/{klient.id_alena}/2026-08-25")
+    konec = odpoved.text.find("</form>", zacatek)
+    assert "bunka-tlacitko-prazdna" in odpoved.text[zacatek:konec]
+    assert "&middot;" in odpoved.text[zacatek:konec]
+
+
 def test_povolit_rucni_upravu_checkbox_je_na_strance(klient):
     odpoved = klient.get("/rozpis?mesic=2026-08")
     assert 'id="chk-rucni-uprava"' in odpoved.text
     assert "Povolit ruční úpravu" in odpoved.text
 
 
-def test_upravit_bunku_zamkne_dny_pred_upravou_ale_ne_po_ni(klient):
+def test_upravit_bunku_nezamyka_natrvalo_ani_dny_pred_upravou(klient):
+    """Na přání: ruční úprava není trvalý požadavek - dny před upraveným
+    dnem (pokud nejsou skutečná minulost) zůstávají po přegenerování
+    volně přeplánovatelné, ne trvale zamčené."""
     conn = _conn(klient)
     schedule = Schedule(
         rok=2026, mesic=8, jmena=("Alena",),
@@ -173,7 +196,11 @@ def test_upravit_bunku_zamkne_dny_pred_upravou_ale_ne_po_ni(klient):
     # den víc směn (jiných zaměstnanců), agregace přes celý den by je
     # navzájem přepsala
     smena_15 = repo.smena_pro_den(_conn(klient), klient.id_alena, date(2026, 8, 15))
-    assert smena_15.locked is True  # před upraveným dnem - zamčeno
+    assert smena_15.locked is False  # srpen je celý budoucnost, nic se natrvalo nezamklo
+
+    smena_20 = repo.smena_pro_den(_conn(klient), klient.id_alena, date(2026, 8, 20))
+    assert smena_20.typ == "N"
+    assert smena_20.locked is False  # i upravená buňka jde dál volně přeplánovat
 
 
 def test_upravit_bunku_prehegeneruje_a_ulozi_zbytek(klient):

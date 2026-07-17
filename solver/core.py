@@ -66,7 +66,10 @@ def _diagnostikuj_nesplnitelnost(config: Config) -> list[str]:
 
 
 def generate_schedule(
-    config: Config, time_limit_s: float = 30.0, random_seed: int | None = None
+    config: Config,
+    time_limit_s: float = 30.0,
+    random_seed: int | None = None,
+    prioritizovat_obsazeni: bool = False,
 ) -> Schedule:
     """Vygeneruje rozpis pro daný config.
 
@@ -74,7 +77,19 @@ def generate_schedule(
     optimálních řešení solver dojde - použitelné pro nabídku více variant
     rozpisu ke stejnému zadání (stejný seed = stejný výsledek).
 
-    Vyhazuje NelzeSestavitError, pokud zadání nemá přípustné řešení.
+    prioritizovat_obsazeni: dvoufázové řešení pro profil "optimalizovany"
+    (na přání - "optimalizovat" = co nejméně krizových dnů, ne jen vyšší
+    váha). Zkoušelo se nejdřív jen vyšší vahy.plne_obsazeni (viz
+    web/app.py:VYCHOZI_VAHY) - matematicky by měla dominovat nad
+    férovostí, ale velký koeficient v jediném součtu prokazatelně ZHORŠIL
+    výsledek (10 → 19 krizových dnů na reálných datech) - CP-SAT search
+    heuristiky jsou citlivé na rozptyl velikostí koeficientů v cíli, ne
+    jen jejich poměr. Skutečně spolehlivé řešení je fáze 1: najít
+    nejvyšší dosažitelný počet plně obsazených D/N slotů SAMOSTATNĚ (bez
+    férovosti v cíli), pak tenhle počet vynutit jako tvrdé minimum a
+    teprve v fázi 2 optimalizovat férovost mezi řešeními, která ho
+    splňují - garance je strukturální (tvrdé pravidlo), ne otázka poměru
+    vah. Čas se dělí půl napůl mezi fáze.
     """
     pocet_dni = config.pocet_dni
     dny = range(pocet_dni)  # interně 0-indexováno, navenek (config, Schedule) 1-indexováno
@@ -175,14 +190,17 @@ def generate_schedule(
 
     # --- měkká pravidla (optimalizační cíl) ---
     cile = []
+    plna_promenne = []  # jen plna_d/plna_n bez váhy - viz prioritizovat_obsazeni níž
 
     for d in dny:
         plna_d = model.NewBoolVar(f"plnaD_{d}")
         model.Add(sum(smena[z, d, D] for z in lide) == o.denni_max).OnlyEnforceIf(plna_d)
         cile.append(vahy.plne_obsazeni * plna_d)
+        plna_promenne.append(plna_d)
         plna_n = model.NewBoolVar(f"plnaN_{d}")
         model.Add(sum(smena[z, d, N] for z in lide) == o.nocni_max).OnlyEnforceIf(plna_n)
         cile.append(vahy.plne_obsazeni * plna_n)
+        plna_promenne.append(plna_n)
 
     nocni_pocty = [sum(smena[z, d, N] for d in dny) for z in lide]
     noc_max = model.NewIntVar(0, pocet_dni, "noc_max")
@@ -216,10 +234,49 @@ def generate_schedule(
                 ).OnlyEnforceIf(spolu.Not())
                 cile.append(-vahy.nekompatibilni_penalizace * spolu)
 
+    zbyvajici_cas = time_limit_s
+    if prioritizovat_obsazeni:
+        # Fáze 1: jen obsazení, bez férovosti v cíli - najde nejvyšší
+        # dosažitelný počet plně obsazených D/N slotů se stejnými tvrdými
+        # pravidly (nedostupnosti, N->D, max v řadě, fond...). Jen 1/3
+        # času - fáze 1 řeší jednodušší (jednorozměrný) cíl, většinu
+        # rozpočtu potřebuje až fáze 2 na hledání férového rozdělení
+        # v rámci nově přidaného omezení.
+        model.Maximize(sum(plna_promenne))
+        cas_faze1 = time_limit_s / 3
+        zbyvajici_cas = time_limit_s - cas_faze1
+        solver_faze1 = cp_model.CpSolver()
+        solver_faze1.parameters.max_time_in_seconds = cas_faze1
+        if random_seed is not None:
+            solver_faze1.parameters.random_seed = random_seed
+            solver_faze1.parameters.num_search_workers = 1
+        status_faze1 = solver_faze1.Solve(model)
+        if status_faze1 in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            nejlepsi_obsazeni = int(solver_faze1.ObjectiveValue())
+            # Tvrdé minimum pro fázi 2 - obsazení už nesmí klesnout pod
+            # to, co fáze 1 prokazatelně umí, ať férovost níž nemůže
+            # "ukrást" ani jeden plně obsazený den zpátky.
+            model.Add(sum(plna_promenne) >= nejlepsi_obsazeni)
+            # Fázi 2 se dá řešení fáze 1 jako hint (je to platné přípustné
+            # řešení, splňuje i nově přidané omezení) - bez tohohle fáze 2
+            # musí ve zbylém čase najít přípustný bod ÚPLNĚ ZNOVA (jiný
+            # cíl = jiné pořadí prohledávání) a na složitějším zadání to
+            # prokazatelně nestíhala (skončila UNKNOWN, i když řešení
+            # evidentně existuje - viz test). S hintem fáze 2 nikdy
+            # nedopadne hůř než fáze 1, i kdyby na doladění férovosti
+            # nezbyl čas.
+            for promenna in smena.values():
+                model.AddHint(promenna, solver_faze1.Value(promenna))
+        # Nesplnitelnost (INFEASIBLE) fáze 1 nastat nemůže - tvrdá
+        # pravidla jsou stejná jako u jediné fáze, ta se diagnostikuje
+        # až níž ze stejného modelu. Prostě se pokračuje do fáze 2 beze
+        # změny (žádné dodatečné omezení ani hint), diagnostika proběhne
+        # tam.
+
     model.Maximize(sum(cile))
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = time_limit_s
+    solver.parameters.max_time_in_seconds = zbyvajici_cas
     if random_seed is not None:
         solver.parameters.random_seed = random_seed
         # Determinismus (stejný seed -> stejný výsledek) vyžaduje jediné

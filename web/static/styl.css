@@ -362,6 +362,14 @@ table.mrizka tfoot .radek-obsazeni td.porusena {
   text-align: center;
 }
 
+/* Prázdná (volno) buňka byla úplně bez obsahu - v prohlížeči vypadala,
+   že tam není co kliknout, přidání služby na volný den tak prakticky
+   nešlo (viz audit). Tečka jen naznačí "je tu klikací tlačítko", ať to
+   nevypadá jako D/N/DOV apod. - proto výrazně ztlumená. */
+.bunka-tlacitko-prazdna {
+  color: var(--barva-ramecek);
+}
+
 .varovani-oznaceni {
   color: var(--barva-chyba);
   font-weight: bold;

@@ -6,9 +6,12 @@
   <h1>Nastavení pravidel</h1>
   {% if chyba %}<p class="chyba">{{ chyba }}</p>{% endif %}
 
-  {% for profil, nazev in [('normalni', 'Normální profil'), ('krizovy', 'Krizový profil')] %}
+  {% for profil, nazev in [('normalni', 'Normální profil'), ('krizovy', 'Krizový profil'), ('optimalizovany', 'Optimalizovaný profil')] %}
     {% set n = nastaveni[profil] %}
     <h2>{{ nazev }}</h2>
+    {% if profil == 'optimalizovany' %}
+      <p>Priorita je co nejméně krizových dnů (pod plným obsazením 4D/2N) - řeší se ve dvou fázích (nejdřív obsazení, pak férovost mezi řešeními se stejným nejlepším obsazením), takže tahle priorita nezávisí na vahách níž. Váhy níž ovlivní jen výběr mezi řešeními se stejným obsazením.</p>
+    {% endif %}
     {% if not n %}
       <p>Zatím nenastaveno - dokud se neuloží, používá se config.yaml.</p>
     {% endif %}
