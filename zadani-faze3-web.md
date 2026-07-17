@@ -34,7 +34,8 @@ přegenerovat zbytek, ukázat diff.
 
 1. Reálná jména a osobní data NIKDY do gitu. Trackovaný config.yaml
    obsahuje jen fiktivní ukázková data. Reálná data žijí výhradně
-   v gitignorované data/ (SQLite DB).
+   v gitignorované data/ (SQLite DB). Dokud je repo public, patří do
+   .gitignore i DEPLOY.md a .env (detaily serveru, klíče).
 2. Každá stránka kromě /login vyžaduje přihlášení. Neexistuje veřejná
    URL s rozpisem. Web se NEDEPLOYUJE, dokud login nefunguje.
 3. Hesla bcrypt, server-side session, cookie HttpOnly + Secure +
@@ -55,6 +56,18 @@ přegenerovat zbytek, ukázat diff.
 - requirements.txt: přidat fastapi, uvicorn, jinja2, bcrypt,
   python-multipart, itsdangerous (nebo ekvivalent pro podepsané session)
 - Commit, žádná další funkčnost
+- [HOTOVO — commit 48b3b59]
+
+### Úkol 0b — přechod na Python 3.13
+Průzkum serveru (DEPLOY.md) zjistil: Debian 13 má jen Python 3.13,
+3.12 nelze nainstalovat z apt. ortools 9.15+ má cp313 wheel — ověřeno.
+Vývoj musí běžet na stejné verzi jako produkce:
+- CLAUDE.md: "Na deploy cílit Python 3.12" → "Python 3.13 (verze na
+  produkčním serveru, Debian 13)"
+- Lokální .venv přestavět na python3.13, přeinstalovat requirements,
+  spustit celou testovací sadu — musí být zelená beze změn kódu
+- Pokud by cokoliv na 3.13 nefungovalo, NEŘEŠIT hackem — zastavit se
+  a reportovat
 
 ### Úkol 1 — kostra webu + přihlášení
 - web/app.py (FastAPI), web/sablony/, web/static/
@@ -117,6 +130,9 @@ přegenerovat zbytek, ukázat diff.
   solver (přes db/bridge.config_pro_mesic + nastaveni z DB) →
   ulozit_rozpis → mřížka s výsledkem
 - Synchronně s time_limit_s (30 s) + indikace běhu; žádné fronty
+- Solver z webu VŽDY s num_search_workers=1: server má 2 vCPU sdílené
+  s rbscannerem, úloha je malá (rychlost neovlivní) a výsledek je
+  deterministický stejně jako v testech
 - Při nesplnitelnosti: čitelně zobrazit výstup _diagnostikuj_nesplnitelnost
   + jedním klikem "Zkusit krizový profil"
 - Testy: e2e na fiktivních datech; nesplnitelný scénář vrátí diagnostiku,
@@ -147,11 +163,36 @@ přegenerovat zbytek, ukázat diff.
   vrací použitelnou radu
 
 ### Úkol 10 — deploy na Hetzner (až funguje 1–9 lokálně)
-- systemd unit podle vzoru rbscanneru, uvicorn na localhost:PORT
-- Caddy: subdoména + HTTPS, reverse proxy
-- Záloha: cron se sqlite3 data/rozpis.db ".backup ..." (NE cp za běhu),
-  rotace pár posledních kopií
-- Po nasazení ověřit: bez loginu se nikam nedostaneš
+Řídí se souborem DEPLOY.md (průzkum serveru 17.7.2026 — Caddy 2.6.2,
+rbscanner na 127.0.0.1:8080, Python 3.13, port 8081 volný).
+Konkréta pro tento server:
+- Vyhrazený systémový účet: useradd --system rozpis; appka v
+  /home/rozpis (nebo /opt/rozpis), chown rozpis:rozpis, unit s
+  User=rozpis. ZÁMĚRNÁ odchylka od vzoru rbscanneru (User=jaromir):
+  data/rozpis.db obsahuje osobní údaje zaměstnanců a izolace účtů
+  odděluje obě nesouvisející appky
+- rozpis.service dle návrhu v DEPLOY.md: uvicorn web.app:app
+  --host 127.0.0.1 --port 8081 (loopback POVINNĚ explicitně),
+  EnvironmentFile=.env (chmod 600, vlastník rozpis) s
+  ROZPIS_TAJNY_KLIC a ROZPIS_DB
+- Caddyfile: přidat blok rozpis-jstl.duckdns.org →
+  reverse_proxy 127.0.0.1:8081, BEZ basicauth (appka má vlastní
+  login); sudo systemctl reload caddy (reload, ne restart)
+- DuckDNS: subdoménu rozpis-jstl zaregistrovat + vytvořit systemd
+  timer (vzor rag-sync.timer na serveru) s denním curl update pro OBĚ
+  subdomény — nahrazuje dnešní nezdokumentovaný/neexistující
+  mechanismus (DEPLOY.md bod 6)
+- Swap: vytvořit 2G swapfile (fallocate, mkswap, swapon, fstab) —
+  server má 3.7 GiB RAM bez swapu (DEPLOY.md riziko 3)
+- Záloha: cron/timer pod účtem rozpis se
+  sqlite3 data/rozpis.db ".backup /home/rozpis/zalohy/rozpis-$(date).db",
+  rotace posledních ~14 kopií (NE prosté cp za běhu)
+- Po nasazení ověřit zvenčí: bez loginu se nikam nedostaneš; cookie
+  má Secure a funguje (běží se za HTTPS)
+- RUČNÍ krok pro Jaromíra (ne Claude Code): v Hetzner konzoli ověřit
+  Cloud Firewall — příchozí povoleno jen 22/80/443 (DEPLOY.md
+  riziko 2); a při první session se sudo ověřit root crontab
+  (sudo crontab -l) a výsledek dopsat do DEPLOY.md
 
 ## Co záměrně NEDĚLAT
 - Žádný React/Vue/HTMX, Tailwind, Docker, async fronty, websockety

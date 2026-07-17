@@ -10,3 +10,9 @@ __pycache__/
 zamestnanci.txt
 požadavky.txt
 rozpis_*.pdf
+
+# Detaily produkčního serveru (IP, cesty, systemd/Caddy config) a tajné
+# klíče - dokud je repo public, nepatří do gitu (viz zadani-faze3-web.md,
+# bezpečnostní invarianty).
+DEPLOY.md
+.env
