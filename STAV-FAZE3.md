@@ -33,8 +33,11 @@ vyžádání jako obvykle (další na řadě je Úkol 4).
 | — | `380d8dc` | `zamestnanec.zakaz_smeny` + `zamestnanec.max_za_sebou` — trvalá osobní omezení (na rozdíl od časově ohraničené `nedostupnost.zakazana_smena`); migrace přes `ALTER TABLE ADD COLUMN` (SQLite 3.25+ podporuje CHECK bez přetvoření tabulky) |
 | — | `21ec5b4` | `import-txt` rozpozná "nemoc"/"nemocná" → NEM; mřížka: NEM vlastní pastelová barva (`--barva-nem`) |
 | — | `a6be3f2` | oprava: nedostupnost se v mřížce neořezávala podle `aktivni_od`/`aktivni_do` → staré záznamy "svítily" i po odchodu; DOV/NEM bez textu v buňce (jen barva); ost/poz text -30 %; krizové dny (pod měsíčním maximem obsazení) červeně tučně v řádku Obsazení |
+| — | `ca5864b` | oprava (audit appky): krizové dny podle denní I noční směny, ne jen denní - noční podstav se dřív schoval za plný denní stav |
+| — | `ffd67a6` | oprava (audit appky): rate limiting na `/login` (5 pokusů / 5 minut podle jména, ne IP) |
+| 4 | `1acbe16` | admin: správa zaměstnanců - seznam (jen aktivní/i bývalí), přidání vč. štítku fyzická výpomoc a neslučitelných dvojic v jednom formuláři, oprava jména, deaktivace, tvrdé smazání jen bez existující směny |
 
-**Testy:** 179, celá sada zelená. Spouštět vždy
+**Testy:** 206, celá sada zelená. Spouštět vždy
 `.venv/bin/python -m pytest -q` (běží ~3–4 min kvůli solver testům).
 
 ## Reálný stav dat (`data/rozpis.db`, srpen 2026)
@@ -67,10 +70,12 @@ Systematicky vyzkoušeno, co by pomohlo:
 
 ## Rozdělané / nezačaté úkoly
 
-- **Úkol 4** — admin: správa zaměstnanců — DALŠÍ NA ŘADĚ, nezačato.
-- Úkoly 5–9 — nezačato.
+- **Úkol 5** — admin: nedostupnosti + parametry pravidel — DALŠÍ NA ŘADĚ, nezačato.
+- Úkoly 6–9 — nezačato.
+- Úkol 9b — samoobslužné podávání požadavků (zapsáno v
+  `zadani-faze3-web.md`, revize dřívějšího "NEIMPLEMENTUJE SE") — nezačato.
 - Úkol 10 (deploy) — připraveno v `DEPLOY.md` (lokální, negitované),
-  čeká na úkoly 1–9 hotové lokálně.
+  čeká na úkoly 1–9(b) hotové lokálně.
 
 ## Na co si dát pozor příště
 
