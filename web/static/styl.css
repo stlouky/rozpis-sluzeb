@@ -167,6 +167,16 @@ table.mrizka tfoot .radek-obsazeni td {
   border-top: 2px solid var(--barva-mrizky);
 }
 
+/* Krizový den = denní obsazení pod měsíčním maximem (viz
+   web/mrizka.py:MrizkaMesice.krizove_dny) - červený text v patičce,
+   ať je na první pohled vidět, kde obsazení nedosáhlo obvyklé plné
+   hodnoty. Přebíjí zděděnou šedou z .radek-obsazeni (stejná specificita,
+   pozdější pravidlo vyhrává). */
+table.mrizka tfoot .radek-obsazeni td.krizovy {
+  color: var(--barva-chyba);
+  font-weight: bold;
+}
+
 /* Pojistka proti přetečení do sousední buňky - i kdyby v budoucnu přibyl
    delší typ nedostupnosti a někdo zapomněl zkratku (viz Bunka.text v
    web/mrizka.py), text se aspoň ořízne, ne že rozbije layout mřížky. */
@@ -196,12 +206,14 @@ table.mrizka .bunka {
 
 .bunka.nedostupnost-nem {
   background: var(--barva-nem);
-  font-size: 0.65rem;
 }
 
+/* o ~30 % menší než základní 0.75rem (viz table.mrizka) - jediné dva
+   typy, co v buňce vůbec text mají (ost/poz, viz Bunka.text), ať
+   opticky nepřebíjí D/N směny */
 .bunka.nedostupnost-jina {
   background: var(--barva-nedostupnost-jina);
-  font-size: 0.65rem;
+  font-size: 0.525rem;
 }
 
 .legenda {

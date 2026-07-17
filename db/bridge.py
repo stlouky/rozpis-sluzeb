@@ -171,6 +171,7 @@ def schedule_z_db(conn: sqlite3.Connection, rok: int, mesic: int) -> Schedule:
     posledni_den = date(rok, mesic, calendar.monthrange(rok, mesic)[1])
 
     aktivni = repo.aktivni_zamestnanci_v_obdobi(conn, prvni_den, posledni_den)
+    zamestnanec_podle_id = {z.id: z for z in aktivni}
     jmeno_podle_id = {z.id: z.jmeno for z in aktivni}
     jmena = tuple(jmeno_podle_id.values())
 
@@ -183,11 +184,21 @@ def schedule_z_db(conn: sqlite3.Connection, rok: int, mesic: int) -> Schedule:
 
     duvody_nedostupnosti: dict[tuple[str, int], str] = {}
     for n in repo.nedostupnosti_v_obdobi(conn, prvni_den, posledni_den):
-        jmeno = jmeno_podle_id.get(n.zamestnanec_id)
-        if jmeno is None:
+        z = zamestnanec_podle_id.get(n.zamestnanec_id)
+        if z is None:
             continue
-        for den in dny_v_mesici(n.od, n.do, prvni_den, posledni_den):
-            duvody_nedostupnosti.setdefault((jmeno, den), n.typ)
+        # Nedostupnost oříznout na aktivní rozsah zaměstnance - starý
+        # záznam (např. "ne noční směnu" na celý měsíc, zadaný dřív, než
+        # bylo jasné, že brigáda/poměr uprostřed měsíce skončí) nesmí
+        # "svítit" v mřížce ještě po dnech, kdy už zaměstnanec fakticky
+        # neexistuje (viz nález: prázdné buňky po konci poměru zůstaly
+        # popsané starým důvodem, místo aby byly prázdné).
+        od_orez = max(n.od, z.aktivni_od)
+        do_orez = min(n.do, z.aktivni_do or posledni_den)
+        if od_orez > do_orez:
+            continue
+        for den in dny_v_mesici(od_orez, do_orez, prvni_den, posledni_den):
+            duvody_nedostupnosti.setdefault((jmeno_podle_id[n.zamestnanec_id], den), n.typ)
 
     return Schedule(
         rok=rok,

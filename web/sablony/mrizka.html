@@ -47,7 +47,7 @@
         <tr class="radek-obsazeni">
           <td class="sloupec-jmeno">Obsazení</td>
           {% for obsazeni_dne in mrizka.obsazeni -%}
-            <td class="{% if mrizka.vikendy[loop.index0] %}vikend{% endif %}">{{ obsazeni_dne[0] }}D<br>{{ obsazeni_dne[1] }}N</td>
+            <td class="{% if mrizka.vikendy[loop.index0] %}vikend{% endif %}{% if mrizka.krizove_dny[loop.index0] %} krizovy{% endif %}">{{ obsazeni_dne[0] }}D<br>{{ obsazeni_dne[1] }}N</td>
           {% endfor -%}
           <td class="sloupec-souhrn"></td>
           <td class="sloupec-souhrn"></td>

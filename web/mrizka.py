@@ -17,12 +17,16 @@ from db.bridge import dny_v_mesici, schedule_z_db
 from solver.schedule import CZ_DNY
 
 
-# Zkratky pro buňku mřížky - malými písmeny (nem/ost/poz), ať jsou v
-# buňce čitelné, ale opticky nekřičí přes D/N směny, které zůstávají
-# velkými (zavedená konvence, viz CLAUDE.md). Neznámé/budoucí typy se
-# zkrátí obecně na první 3 znaky malými (viz Bunka.text), ať nový typ
-# nedostupnosti mřížku nerozbije, i kdyby se sem zapomnělo doplnit zkratku.
-_ZKRATKA_NEDOSTUPNOSTI = {"NEM": "nem", "OST": "ost", "POZADAVEK": "poz"}
+# Zkratky pro buňku mřížky - malými písmeny (ost/poz), ať jsou v buňce
+# čitelné, ale opticky nekřičí přes D/N směny, které zůstávají velkými
+# (zavedená konvence, viz CLAUDE.md). DOV a NEM v buňce žádný text
+# nemají (na přání) - stačí barva, viz Bunka.text/trida. Neznámé/budoucí
+# typy se zkrátí obecně na první 3 znaky malými, ať nový typ nedostupnosti
+# mřížku nerozbije, i kdyby se sem zapomnělo doplnit zkratku.
+_ZKRATKA_NEDOSTUPNOSTI = {"OST": "ost", "POZADAVEK": "poz"}
+
+# Typy nedostupnosti bez textu v buňce - jen barva (viz Bunka.text).
+_BEZ_TEXTU_V_BUNCE = {"DOV", "NEM"}
 
 # Plný název pro title/tooltip buňky (viz web/sablony/mrizka.html) - i
 # nahled ho smí vidět, jde jen o rozepsání zkratky/barvy, ne o poznámku.
@@ -44,7 +48,7 @@ class Bunka:
     def text(self) -> str:
         if self.smena:
             return self.smena
-        if self.nedostupnost and self.nedostupnost != "DOV":
+        if self.nedostupnost and self.nedostupnost not in _BEZ_TEXTU_V_BUNCE:
             return _ZKRATKA_NEDOSTUPNOSTI.get(self.nedostupnost, self.nedostupnost[:3].lower())
         return ""
 
@@ -92,6 +96,11 @@ class MrizkaMesice:
     vikendy: list[bool]
     radky: list[RadekZamestnance]
     obsazeni: list[tuple[int, int]]  # (počet D, počet N) za den, stejné pořadí jako dny
+    # Den je "krizový", když jeho denní obsazení nedosáhne maxima, kterého
+    # se v tomhle měsíci jinak běžně dosahuje (viz sestavit_mrizku) - datově
+    # řízené, ne natvrdo porovnané s config.yaml, ať to funguje i s jiným
+    # profilem obsazení (úkol 5).
+    krizove_dny: list[bool]
 
 
 def _poznamky_v_mesici(
@@ -151,6 +160,13 @@ def sestavit_mrizku(conn: sqlite3.Connection, rok: int, mesic: int, je_admin: bo
             )
         )
 
+    obsazeni = [schedule.obsazeni_dne(d) for d in dny]
+    # "Krizový" den = denní obsazení pod maximem, kterého tenhle měsíc
+    # jinde běžně dosahuje (ne natvrdo 4 - obsazeni_dne může mít i jiný
+    # profil, viz úkol 5). Bez dat (nikdo nikde plný) se nic neoznačí.
+    nejvyssi_denni = max((d for d, _ in obsazeni), default=0)
+    krizove_dny = [d < nejvyssi_denni for d, _ in obsazeni]
+
     return MrizkaMesice(
         rok=rok,
         mesic=mesic,
@@ -158,5 +174,6 @@ def sestavit_mrizku(conn: sqlite3.Connection, rok: int, mesic: int, je_admin: bo
         dny_tydne=[CZ_DNY[date(rok, mesic, d).weekday()] for d in dny],
         vikendy=[schedule.je_vikend(d) for d in dny],
         radky=radky,
-        obsazeni=[schedule.obsazeni_dne(d) for d in dny],
+        obsazeni=obsazeni,
+        krizove_dny=krizove_dny,
     )

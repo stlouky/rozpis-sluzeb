@@ -62,6 +62,24 @@ def test_sestavit_mrizku_obsazeni_je_pocet_d_n_za_den(conn):
     assert len(mrizka.obsazeni) == mrizka.dny[-1]  # jeden záznam na každý den měsíce
 
 
+def test_sestavit_mrizku_krizove_dny_pod_mesicnim_maximem(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_zamestnance(conn, "Bedřich", date(2020, 1, 1))
+    # 1.8.: oba D (obsazení 2) - měsíční maximum; 2.8.: jen Alena D (1) -
+    # pod maximem, tedy "krizový"; 3.8.: nikdo (0) - taky krizový
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena", "Bedřich"),
+        smeny={("Alena", 1): "D", ("Bedřich", 1): "D", ("Alena", 2): "D"},
+        status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    assert mrizka.krizove_dny[0] is False  # 1.8. - na maximu
+    assert mrizka.krizove_dny[1] is True  # 2.8. - pod maximem
+    assert mrizka.krizove_dny[2] is True  # 3.8. - pod maximem
+
+
 def test_sestavit_mrizku_souhrn_pocita_d_n_vikend(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     # 1.8.2026 je sobota (víkend) - D tuhle sobotu, N v pondělí (ne víkend)
@@ -94,10 +112,11 @@ def test_sestavit_mrizku_dov_nem_ost_maji_rozdilne_tridy(conn):
     assert bunka_dov.text == ""  # DOV se jen barví, bez textu (jako v PDF)
 
     # NEM má vlastní pastelovou třídu (na přání - snáz se v mřížce najde,
-    # kdo je nemocný), OST/POZADAVEK sdílí neutrální nedostupnost-jina
+    # kdo je nemocný) a stejně jako DOV žádný text, jen barvu.
+    # OST/POZADAVEK sdílí neutrální nedostupnost-jina a mají text.
     assert bunka_nem.nedostupnost == "NEM"
     assert bunka_nem.trida == "nedostupnost-nem"
-    assert bunka_nem.text == "nem"
+    assert bunka_nem.text == ""
 
     assert bunka_ost.nedostupnost == "OST"
     assert bunka_ost.trida == "nedostupnost-jina"

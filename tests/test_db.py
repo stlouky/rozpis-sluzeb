@@ -682,6 +682,32 @@ def test_schedule_z_db_neaktivni_zamestnanec_se_neobjevi(conn):
     assert "Alena" not in schedule.jmena
 
 
+def test_schedule_z_db_orizne_nedostupnost_po_konci_pomeru(conn):
+    # nález: starý záznam "ne noční směnu" zadaný na celý měsíc dřív, než
+    # bylo jasné, že brigáda skončí uprostřed měsíce, nesmí "svítit" v
+    # mřížce ještě po dnech, kdy zaměstnanec už fakticky neexistuje
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(
+        conn, id_, date(2026, 8, 1), date(2026, 8, 31), "POZADAVEK", zakazana_smena="N",
+    )
+    repo.deaktivovat_zamestnance(conn, id_, date(2026, 8, 16))
+
+    schedule = schedule_z_db(conn, 2026, 8)
+    assert schedule.duvod_nedostupnosti("Alena", 10) == "POZADAVEK"  # před odchodem platí
+    assert schedule.duvod_nedostupnosti("Alena", 16) == "POZADAVEK"  # poslední den včetně
+    assert schedule.duvod_nedostupnosti("Alena", 17) is None  # po odchodu už prázdné
+    assert schedule.duvod_nedostupnosti("Alena", 31) is None
+
+
+def test_schedule_z_db_orizne_nedostupnost_pred_nastupem(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2026, 8, 15))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 1), date(2026, 8, 31), "DOV")
+
+    schedule = schedule_z_db(conn, 2026, 8)
+    assert schedule.duvod_nedostupnosti("Alena", 10) is None  # před nástupem
+    assert schedule.duvod_nedostupnosti("Alena", 20) == "DOV"
+
+
 def test_souhrn_vstupu_pocita_zamestnance_a_nedostupnosti(conn):
     id_alena = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     repo.pridat_zamestnance(conn, "Bedřich", date(2020, 1, 1))
