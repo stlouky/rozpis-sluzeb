@@ -36,8 +36,9 @@ vyžádání jako obvykle (další na řadě je Úkol 4).
 | — | `ca5864b` | oprava (audit appky): krizové dny podle denní I noční směny, ne jen denní - noční podstav se dřív schoval za plný denní stav |
 | — | `ffd67a6` | oprava (audit appky): rate limiting na `/login` (5 pokusů / 5 minut podle jména, ne IP) |
 | 4 | `1acbe16` | admin: správa zaměstnanců - seznam (jen aktivní/i bývalí), přidání vč. štítku fyzická výpomoc a neslučitelných dvojic v jednom formuláři, oprava jména, deaktivace, tvrdé smazání jen bez existující směny |
+| 5 | `24efadf` | admin: nedostupnosti (CRUD vč. editace, překryvy jen jako varování) + parametry pravidel (`nastaveni` tabulka, profily normalni/krizovy, `config_pro_mesic` je bere z DB místo config.yaml, pokud existují) + migrace `nedostupnost.typ` o `SVZ` (školení v zařízení) - migrace na `data/rozpis.db` ZATÍM NESPUŠTĚNA, viz sekce níž |
 
-**Testy:** 206, celá sada zelená. Spouštět vždy
+**Testy:** 238, celá sada zelená. Spouštět vždy
 `.venv/bin/python -m pytest -q` (běží ~3–4 min kvůli solver testům).
 
 ## Reálný stav dat (`data/rozpis.db`, srpen 2026)
@@ -70,12 +71,69 @@ Systematicky vyzkoušeno, co by pomohlo:
 
 ## Rozdělané / nezačaté úkoly
 
-- **Úkol 5** — admin: nedostupnosti + parametry pravidel — DALŠÍ NA ŘADĚ, nezačato.
-- Úkoly 6–9 — nezačato.
+- **Úkol 6** — admin: VYGENEROVAT (jádro hlavního scénáře) — DALŠÍ NA ŘADĚ, nezačato.
+- Úkoly 7–9 — nezačato.
 - Úkol 9b — samoobslužné podávání požadavků (zapsáno v
   `zadani-faze3-web.md`, revize dřívějšího "NEIMPLEMENTUJE SE") — nezačato.
 - Úkol 10 (deploy) — připraveno v `DEPLOY.md` (lokální, negitované),
   čeká na úkoly 1–9(b) hotové lokálně.
+
+## ⚠️ Nedokončená migrace na `data/rozpis.db` (po Úkolu 5)
+
+Úkol 5 změnil `db/schema.sql` dvakrát: `nedostupnost.typ` CHECK rozšířen
+o `SVZ` (vyžaduje přetvoření tabulky, ne ADD COLUMN) a přibyla nová
+tabulka `nastaveni`. `inicializovat_schema()` se spustí JEN při založení
+nového DB souboru (viz `pripojit_a_inicializovat`) — na existující
+`data/rozpis.db` se žádná změna schématu neprojeví sama, dokud se ručně
+nespustí:
+
+```sql
+-- 1) nedostupnost.typ: přidat SVZ do CHECK (přetvoření tabulky)
+ALTER TABLE nedostupnost RENAME TO nedostupnost_stara;
+CREATE TABLE nedostupnost (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    zamestnanec_id INTEGER NOT NULL REFERENCES zamestnanec(id),
+    od TEXT NOT NULL,
+    do TEXT NOT NULL,
+    typ TEXT NOT NULL CHECK (typ IN ('DOV', 'NEM', 'OST', 'SVZ', 'POZADAVEK')),
+    poznamka TEXT,
+    zakazana_smena TEXT CHECK (zakazana_smena IN ('D', 'N'))
+);
+INSERT INTO nedostupnost SELECT * FROM nedostupnost_stara;
+DROP TABLE nedostupnost_stara;
+
+-- 2) nová tabulka nastaveni
+CREATE TABLE IF NOT EXISTS nastaveni (
+    profil TEXT PRIMARY KEY CHECK (profil IN ('normalni', 'krizovy')),
+    denni_min INTEGER NOT NULL,
+    denni_max INTEGER NOT NULL,
+    nocni_min INTEGER NOT NULL,
+    nocni_max INTEGER NOT NULL,
+    max_v_rade INTEGER NOT NULL,
+    max_smen_mesic INTEGER NOT NULL,
+    plne_obsazeni INTEGER NOT NULL DEFAULT 10,
+    ferovost_nocni INTEGER NOT NULL DEFAULT 5,
+    ferovost_vikendy INTEGER NOT NULL DEFAULT 3,
+    ferovost_celkem INTEGER NOT NULL DEFAULT 4,
+    nekompatibilni_penalizace INTEGER NOT NULL DEFAULT 8
+);
+```
+
+**`nastaveni` je teď v `web/db.py:OCEKAVANE_TABULKY`** (konzistentně s
+tím, jak `overit_databazi` chytá přesně tenhle druh nesouladu, viz její
+docstring/incident) - web tak na nemigrované `data/rozpis.db` vůbec
+nenaběhne, spadne hned při startu se srozumitelnou chybou "chybí tabulky:
+nastaveni", ne až uprostřed provozu. CLI (`db/cli.py`) `overit_databazi`
+nevolá (nikdy nevolalo, ani pro `uzivatel` z úkolu 1) - `generuj` proti
+nemigrované DB proto proběhne v pohodě: `repo.nastaveni_pro_profil`
+chytá `OperationalError` "no such table" a chová se stejně, jako by
+tabulka existovala, ale řádek pro daný profil v ní nebyl (fallback na
+`config.yaml`, viz `db/bridge.py`). `import-txt`/`pridat-nedostupnost`
+se SVZ ale spadne na syrový `sqlite3.IntegrityError` (CHECK na starém
+`nedostupnost.typ`) - tohle ošetřené není. Migraci je tedy potřeba
+spustit PŘED prvním startem webu po tomhle úkolu (a před prvním použitím
+SVZ). Vzor stejný jako u `zakaz_smeny`/`max_za_sebou` (úkol 4 příprava) -
+"ověřeno na kopii DB předem" než na ostrá data.
 
 ## Na co si dát pozor příště
 
