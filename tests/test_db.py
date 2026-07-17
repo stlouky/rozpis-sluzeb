@@ -664,6 +664,49 @@ def test_zamknout_a_odemknout_smeny(conn):
     assert repo.smeny_v_mesici(conn, 2026, 8)[0].locked is False
 
 
+def test_smena_pro_den(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    assert repo.smena_pro_den(conn, id_, date(2026, 8, 1)) is None
+
+    schedule = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "D"},
+                         status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, schedule)
+    assert repo.smena_pro_den(conn, id_, date(2026, 8, 1)).typ == "D"
+
+
+def test_nastavit_smenu_vytvori_novou(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.nastavit_smenu(conn, id_, date(2026, 8, 1), "D")
+    assert repo.smena_pro_den(conn, id_, date(2026, 8, 1)).typ == "D"
+
+
+def test_nastavit_smenu_prepise_existujici(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.nastavit_smenu(conn, id_, date(2026, 8, 1), "D")
+    repo.nastavit_smenu(conn, id_, date(2026, 8, 1), "N")
+    assert repo.smena_pro_den(conn, id_, date(2026, 8, 1)).typ == "N"
+
+
+def test_nastavit_smenu_s_none_smaze(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.nastavit_smenu(conn, id_, date(2026, 8, 1), "D")
+    repo.nastavit_smenu(conn, id_, date(2026, 8, 1), None)
+    assert repo.smena_pro_den(conn, id_, date(2026, 8, 1)) is None
+
+
+def test_nastavit_smenu_zamcenou_vyhodi_value_error(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "D"},
+                         status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, schedule)
+    smena_id = repo.smeny_v_mesici(conn, 2026, 8)[0].id
+    repo.zamknout_smeny(conn, [smena_id])
+
+    with pytest.raises(ValueError, match="zamčená"):
+        repo.nastavit_smenu(conn, id_, date(2026, 8, 1), "N")
+    assert repo.smena_pro_den(conn, id_, date(2026, 8, 1)).typ == "D"  # beze změny
+
+
 def test_smazat_nezamcene_v_obdobi_zachova_zamcene(conn):
     repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     schedule = Schedule(
@@ -839,6 +882,24 @@ def test_schedule_z_db_sestavi_smeny_z_ulozeneho_rozpisu(conn):
     assert schedule.smena_zamestnance("Alena", 1) == "D"
     assert schedule.smena_zamestnance("Bedřich", 1) == "N"
     assert schedule.smena_zamestnance("Alena", 2) is None
+
+
+def test_schedule_z_db_ma_zamcene_smeny(conn):
+    id_alena = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_zamestnance(conn, "Bedřich", date(2020, 1, 1))
+    puvodni = Schedule(rok=2026, mesic=8, jmena=("Alena", "Bedřich"),
+                        smeny={("Alena", 1): "D", ("Bedřich", 1): "N"},
+                        status="OPTIMAL", cas_reseni=0.1)
+    repo.ulozit_rozpis(conn, puvodni)
+    smena_alena_id = next(
+        s.id for s in repo.smeny_v_mesici(conn, 2026, 8) if s.zamestnanec_id == id_alena
+    )
+    repo.zamknout_smeny(conn, [smena_alena_id])
+
+    schedule = schedule_z_db(conn, 2026, 8)
+    assert schedule.je_zamcena("Alena", 1) is True
+    assert schedule.je_zamcena("Bedřich", 1) is False
+    assert schedule.je_zamcena("Alena", 2) is False
 
 
 def test_schedule_z_db_obsahuje_duvod_nedostupnosti(conn):

@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import calendar
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
 from db import repository as repo
-from db.bridge import dny_v_mesici, schedule_z_db
+from db.bridge import config_pro_mesic, dny_v_mesici, schedule_z_db
 from solver.schedule import CZ_DNY
+from solver.validace import validovat_rozpis
 
 
 # Zkratky pro buňku mřížky - malými písmeny (ost/poz), ať jsou v buňce
@@ -46,6 +47,11 @@ class Bunka:
     smena: str | None  # 'D' | 'N' | None
     nedostupnost: str | None  # 'DOV' | 'NEM' | 'OST' | 'POZADAVEK' | None
     poznamka: str | None  # jen pro admina (viz sestavit_mrizku), jinak vždy None
+    zamcena: bool = False  # úkol 8 - jen nezamčené buňky smí admin klikem upravit
+    # Text porušení tvrdého pravidla (nebo více spojených), None = bez
+    # porušení - viz solver/validace.py. Zobrazuje se i nahled roli (jde
+    # jen o to, že rozpis neodpovídá pravidlům, ne o poznámku).
+    duvod_poruseni: str | None = None
 
     @property
     def text(self) -> str:
@@ -60,6 +66,23 @@ class Bunka:
         """Plný název typu pro title/tooltip - zkratka v buňce (text výš)
         by sama o sobě nemusela být čitelná."""
         return NAZEV_NEDOSTUPNOSTI.get(self.nedostupnost) if self.nedostupnost else None
+
+    @property
+    def nadpis(self) -> str | None:
+        """Text pro title/tooltip buňky (úkol 8) - porušení tvrdého
+        pravidla (pokud je) + poznámka/název nedostupnosti, spojené
+        středníkem. duvod_poruseni a nedostupnost se v praxi nepřekrývají
+        (validátor kontroluje jen dny se směnou, viz solver/validace.py),
+        ale poznamka může nastat společně s duvod_poruseni (např. ručně
+        přiřazená směna v den nahlášené nedostupnosti)."""
+        casti = []
+        if self.duvod_poruseni:
+            casti.append(self.duvod_poruseni)
+        if self.poznamka:
+            casti.append(self.poznamka)
+        elif self.nazev_nedostupnosti:
+            casti.append(self.nazev_nedostupnosti)
+        return "; ".join(casti) if casti else None
 
     @property
     def trida(self) -> str:
@@ -88,6 +111,10 @@ class RadekZamestnance:
     pocet_d: int
     pocet_n: int
     pocet_vikendu: int
+    zamestnanec_id: int | None = None  # None jen teoreticky (viz sestavit_mrizku)
+    # Porušení tvrdých pravidel nevázaná na konkrétní den (úkol 8: fond
+    # přes limit) - zobrazí se u jména, ne v konkrétní buňce.
+    varovani: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -107,6 +134,9 @@ class MrizkaMesice:
     # než podstav ve dne, ale den s plným denním obsazením by ho jinak
     # přebil a schoval (viz audit).
     krizove_dny: list[bool]
+    # Den porušuje tvrdé pravidlo obsazení (úkol 8: mimo min/max, na
+    # rozdíl od krizove_dny výš, které je jen relativní k tomuto měsíci).
+    dny_s_porusenim: list[bool]
 
 
 def _poznamky_v_mesici(
@@ -142,17 +172,42 @@ def sestavit_mrizku(conn: sqlite3.Connection, rok: int, mesic: int, je_admin: bo
 
     poznamky = _poznamky_v_mesici(conn, rok, mesic) if je_admin else {}
 
+    prvni_den = date(rok, mesic, 1)
+    posledni_den = date(rok, mesic, schedule.pocet_dni)
+    zamestnanec_id_podle_jmena = {
+        z.jmeno: z.id for z in repo.aktivni_zamestnanci_v_obdobi(conn, prvni_den, posledni_den)
+    }
+
+    # Porušení tvrdých pravidel (úkol 8) - vždy dopočítané, ne jen po
+    # ruční úpravě, ať se ukážou i staré/zamčené kolize z generování.
+    # Profil "normalni" je stejný výchozí, jaký bere config_pro_mesic i
+    # POST /rozpis/generovat bez výslovné volby (viz web/app.py).
+    config = config_pro_mesic(conn, rok, mesic)
+    poruseni_bunky: dict[tuple[str, int], list[str]] = {}
+    poruseni_dne: set[int] = set()
+    poruseni_zamestnance: dict[str, list[str]] = {}
+    for p in validovat_rozpis(schedule, config):
+        if p.zamestnanec is None:
+            poruseni_dne.add(p.den)
+        elif p.den == 0:
+            poruseni_zamestnance.setdefault(p.zamestnanec, []).append(p.popis)
+        else:
+            poruseni_bunky.setdefault((p.zamestnanec, p.den), []).append(p.popis)
+
     radky = []
     for jmeno in schedule.jmena_serazena:
         bunky = []
         for den in dny:
             smena = schedule.smena_zamestnance(jmeno, den)
             nedostupnost = None if smena else schedule.duvod_nedostupnosti(jmeno, den)
+            duvody = poruseni_bunky.get((jmeno, den))
             bunky.append(
                 Bunka(
                     smena=smena,
                     nedostupnost=nedostupnost,
                     poznamka=poznamky.get((jmeno, den)),
+                    zamcena=schedule.je_zamcena(jmeno, den),
+                    duvod_poruseni="; ".join(duvody) if duvody else None,
                 )
             )
         souhrn = schedule.souhrn_zamestnance(jmeno)
@@ -163,6 +218,8 @@ def sestavit_mrizku(conn: sqlite3.Connection, rok: int, mesic: int, je_admin: bo
                 pocet_d=souhrn["smeny"] - souhrn["nocni"],
                 pocet_n=souhrn["nocni"],
                 pocet_vikendu=souhrn["vikendy"],
+                zamestnanec_id=zamestnanec_id_podle_jmena.get(jmeno),
+                varovani=poruseni_zamestnance.get(jmeno, []),
             )
         )
 
@@ -188,4 +245,5 @@ def sestavit_mrizku(conn: sqlite3.Connection, rok: int, mesic: int, je_admin: bo
         radky=radky,
         obsazeni=obsazeni,
         krizove_dny=krizove_dny,
+        dny_s_porusenim=[d in poruseni_dne for d in dny],
     )

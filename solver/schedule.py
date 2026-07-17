@@ -35,6 +35,14 @@ class Schedule:
     # zobrazení (PDF), solver s tím dál nepracuje. Chybějící klíč = buď se
     # pracovalo, nebo důvod není znám (např. config.yaml bez duvody_nedostupnosti).
     duvody_nedostupnosti: dict[tuple[str, int], str] = field(default_factory=dict)
+    # (jmeno, den) dvojice se zamčenou směnou - jen pro zobrazení (úkol 8:
+    # ruční úprava buňky v mřížce smí měnit JEN nezamčené). Prázdné u
+    # čerstvého výsledku solveru (generate_schedule) - vyplňuje ho jen
+    # db.bridge.schedule_z_db, který zamčené směny z DB zná.
+    zamcene: frozenset[tuple[str, int]] = field(default_factory=frozenset)
+
+    def je_zamcena(self, jmeno: str, den: int) -> bool:
+        return (jmeno, den) in self.zamcene
 
     @property
     def pocet_dni(self) -> int:

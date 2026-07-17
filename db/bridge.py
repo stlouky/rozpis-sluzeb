@@ -202,11 +202,14 @@ def schedule_z_db(conn: sqlite3.Connection, rok: int, mesic: int) -> Schedule:
     jmena = tuple(jmeno_podle_id.values())
 
     smeny: dict[tuple[str, int], str] = {}
+    zamcene: set[tuple[str, int]] = set()
     for s in repo.smeny_v_mesici(conn, rok, mesic):
         jmeno = jmeno_podle_id.get(s.zamestnanec_id)
         if jmeno is None:
             continue  # zaměstnanec mimo aktivní rozsah měsíce (viz níž)
         smeny[(jmeno, s.datum.day)] = s.typ
+        if s.locked:
+            zamcene.add((jmeno, s.datum.day))
 
     duvody_nedostupnosti: dict[tuple[str, int], str] = {}
     for n in repo.nedostupnosti_v_obdobi(conn, prvni_den, posledni_den):
@@ -234,4 +237,5 @@ def schedule_z_db(conn: sqlite3.Connection, rok: int, mesic: int) -> Schedule:
         status="ULOZENO",
         cas_reseni=0.0,
         duvody_nedostupnosti=duvody_nedostupnosti,
+        zamcene=frozenset(zamcene),
     )

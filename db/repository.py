@@ -406,6 +406,43 @@ def smeny_v_mesici(conn: sqlite3.Connection, rok: int, mesic: int) -> list[Smena
     return [_smena_z_radku(r) for r in radky]
 
 
+def smena_pro_den(conn: sqlite3.Connection, zamestnanec_id: int, datum: date) -> Smena | None:
+    radek = conn.execute(
+        "SELECT * FROM smena WHERE zamestnanec_id = ? AND datum = ?",
+        (zamestnanec_id, datum.isoformat()),
+    ).fetchone()
+    return _smena_z_radku(radek) if radek else None
+
+
+def nastavit_smenu(
+    conn: sqlite3.Connection, zamestnanec_id: int, datum: date, typ: str | None
+) -> None:
+    """Ručně nastaví (typ='D'/'N') nebo zruší (typ=None) jednu směnu -
+    pro klikací úpravu buňky v mřížce (úkol 8), na rozdíl od
+    ulozit_rozpis() níž (bulk zápis výsledku solveru). Zamčenou směnu
+    NIKDY nezmění - admin ji musí nejdřív odemknout (zamknout_smeny/
+    odemknout_smeny výš), stejný invariant jako u ulozit_rozpis."""
+    existujici = smena_pro_den(conn, zamestnanec_id, datum)
+    if existujici is not None and existujici.locked:
+        raise ValueError(
+            f"Směna {datum.isoformat()} je zamčená, nejde ji ručně upravit - nejdřív odemkni."
+        )
+
+    if typ is None:
+        conn.execute(
+            "DELETE FROM smena WHERE zamestnanec_id = ? AND datum = ?",
+            (zamestnanec_id, datum.isoformat()),
+        )
+    elif existujici is None:
+        conn.execute(
+            "INSERT INTO smena (zamestnanec_id, datum, typ) VALUES (?, ?, ?)",
+            (zamestnanec_id, datum.isoformat(), typ),
+        )
+    else:
+        conn.execute("UPDATE smena SET typ = ? WHERE id = ?", (typ, existujici.id))
+    conn.commit()
+
+
 def zamknout_smeny(conn: sqlite3.Connection, seznam_id: list[int]) -> None:
     conn.executemany("UPDATE smena SET locked = 1 WHERE id = ?", [(i,) for i in seznam_id])
     conn.commit()

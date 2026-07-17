@@ -734,3 +734,34 @@ def rozpis_pdf(
         filename=f"rozpis-{rok}-{mes:02d}.pdf",
         background=BackgroundTask(os.unlink, cesta),
     )
+
+
+# --- úkol 8: admin - ruční úprava buňky (klik = cyklus D/N/volno) ---
+
+CYKLUS_SMENY: dict[str | None, str | None] = {None: "D", "D": "N", "N": None}
+
+
+@app.post("/rozpis/bunka/{zamestnanec_id}/{datum}")
+def rozpis_bunka_cyklus(
+    zamestnanec_id: int,
+    datum: date,
+    mesic: str = Form(...),
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    """Klik na nezamčenou buňku cykluje volno -> D -> N -> volno. Validace
+    tvrdých pravidel se NEBLOKUJE tady (admin smí vědomě uložit i
+    porušený stav - realita > solver, viz zadani-faze3-web.md úkol 8) -
+    porušení se jen dopočítá a označí při dalším vykreslení mřížky
+    (web/mrizka.py:sestavit_mrizku volá solver.validace.validovat_rozpis
+    vždycky, ne jen po téhle akci)."""
+    aktualni = repo.smena_pro_den(conn, zamestnanec_id, datum)
+    novy_typ = CYKLUS_SMENY[aktualni.typ if aktualni else None]
+    try:
+        repo.nastavit_smenu(conn, zamestnanec_id, datum, novy_typ)
+    except ValueError:
+        # Zamčená směna - šablona takové buňky vůbec nedělá klikatelné
+        # (viz mrizka.html), tenhle klik jde jen přes ručně sestavený
+        # požadavek. Tiše se ignoruje, ne 500 - stav v DB je stále platný.
+        pass
+    return RedirectResponse(url=f"/rozpis?mesic={mesic}", status_code=status.HTTP_303_SEE_OTHER)

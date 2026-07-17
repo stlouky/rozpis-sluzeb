@@ -77,9 +77,21 @@
       <tbody>
         {% for radek in mrizka.radky %}
           <tr>
-            <td class="sloupec-jmeno">{{ radek.jmeno }}</td>
+            <td class="sloupec-jmeno"{% if radek.varovani %} title="{{ radek.varovani|join('; ') }}"{% endif %}>
+              {{ radek.jmeno }}{% if radek.varovani %} <span class="varovani-oznaceni">!</span>{% endif %}
+            </td>
             {% for bunka in radek.bunky -%}
-              <td class="bunka{% if mrizka.vikendy[loop.index0] %} vikend{% endif %}{% if bunka.trida %} {{ bunka.trida }}{% endif %}"{% if bunka.poznamka %} title="{{ bunka.poznamka }}"{% elif bunka.nazev_nedostupnosti %} title="{{ bunka.nazev_nedostupnosti }}"{% endif %}>{{ bunka.text }}</td>
+              {% set den = mrizka.dny[loop.index0] %}
+              <td class="bunka{% if mrizka.vikendy[loop.index0] %} vikend{% endif %}{% if bunka.trida %} {{ bunka.trida }}{% endif %}{% if bunka.duvod_poruseni %} porusena{% endif %}{% if bunka.zamcena %} zamcena{% endif %}"{% if bunka.nadpis %} title="{{ bunka.nadpis }}"{% endif %}>
+                {% if je_admin and not bunka.zamcena and radek.zamestnanec_id %}
+                  <form method="post" action="/rozpis/bunka/{{ radek.zamestnanec_id }}/{{ '%04d-%02d-%02d'|format(mrizka.rok, mrizka.mesic, den) }}" class="bunka-formular">
+                    <input type="hidden" name="mesic" value="{{ '%04d-%02d'|format(mrizka.rok, mrizka.mesic) }}">
+                    <button type="submit" class="bunka-tlacitko">{{ bunka.text }}</button>
+                  </form>
+                {% else %}
+                  {{ bunka.text }}
+                {% endif %}
+              </td>
             {% endfor -%}
             <td class="souhrn">{{ radek.pocet_d }}</td>
             <td class="souhrn">{{ radek.pocet_n }}</td>
@@ -91,7 +103,7 @@
         <tr class="radek-obsazeni">
           <td class="sloupec-jmeno">Obsazení</td>
           {% for obsazeni_dne in mrizka.obsazeni -%}
-            <td class="{% if mrizka.vikendy[loop.index0] %}vikend{% endif %}{% if mrizka.krizove_dny[loop.index0] %} krizovy{% endif %}">{{ obsazeni_dne[0] }}D<br>{{ obsazeni_dne[1] }}N</td>
+            <td class="{% if mrizka.vikendy[loop.index0] %}vikend{% endif %}{% if mrizka.krizove_dny[loop.index0] %} krizovy{% endif %}{% if mrizka.dny_s_porusenim[loop.index0] %} porusena{% endif %}">{{ obsazeni_dne[0] }}D<br>{{ obsazeni_dne[1] }}N</td>
           {% endfor -%}
           <td class="sloupec-souhrn"></td>
           <td class="sloupec-souhrn"></td>
@@ -108,7 +120,12 @@
     <span class="stitek nedostupnost-nem">nem</span> nemoc
     <span class="stitek nedostupnost-jina">ost/poz</span> ostatní nedostupnost
     <span class="stitek vikend">víkend</span>
+    <span class="stitek bunka porusena">D</span> porušuje tvrdé pravidlo
+    {% if je_admin %}<span class="stitek bunka zamcena">D</span> zamčeno - nejde upravit klikem{% endif %}
   </p>
+  {% if je_admin %}
+    <p class="napoveda-editace">Klik na nezamčenou buňku ji přepne volno &rarr; D &rarr; N &rarr; volno.</p>
+  {% endif %}
 </main>
 {% if je_admin %}
 <script>

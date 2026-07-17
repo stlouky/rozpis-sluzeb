@@ -321,6 +321,58 @@ table.mrizka .bunka {
   font-size: 0.525rem;
 }
 
+/* --- úkol 8: klikací úprava buňky + porušení tvrdých pravidel --- */
+
+/* Porušuje tvrdé pravidlo (viz solver/validace.py) - červený obrys
+   nepřebíjí barvu pozadí (smena-d/n zůstává vidět), jen ji zvýrazní. */
+.bunka.porusena {
+  outline: 2px solid var(--barva-chyba);
+  outline-offset: -2px;
+}
+
+table.mrizka tfoot .radek-obsazeni td.porusena {
+  outline: 2px solid var(--barva-chyba);
+  outline-offset: -2px;
+}
+
+/* Zamčená buňka (viz Schedule.zamcene) - admin ji nemůže upravit
+   kliknutím, mírně ztlumená ať je to na první pohled jasné. */
+.bunka.zamcena {
+  opacity: 0.65;
+}
+
+.bunka-formular {
+  margin: 0;
+  height: 100%;
+}
+
+/* Tlačítko vyplní celou buňku, ať jde kliknout kamkoli v ní, ne jen
+   přesně na text - vypadá jako obyčejná buňka, ne jako tlačítko. */
+.bunka-tlacitko {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+}
+
+.varovani-oznaceni {
+  color: var(--barva-chyba);
+  font-weight: bold;
+}
+
+.napoveda-editace {
+  font-size: 0.8rem;
+  color: #666;
+  margin-top: 0.25rem;
+}
+
 .legenda {
   margin-top: 1rem;
   font-size: 0.85rem;

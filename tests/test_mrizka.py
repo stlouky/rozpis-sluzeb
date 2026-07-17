@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from db import repository as repo
 from db.auth import hashovat_heslo
+from db.models import NastaveniProfilu
 from solver.schedule import Schedule
 from web.app import app
 from web.mrizka import sestavit_mrizku
@@ -188,6 +189,80 @@ def test_sestavit_mrizku_vikendy_odpovidaji_dnum(conn):
     assert mrizka.vikendy[1] is True
     assert mrizka.vikendy[2] is False
     assert mrizka.dny_tydne[0] == "So"
+
+
+# --- úkol 8: zamčené buňky + porušení tvrdých pravidel ---
+
+def test_sestavit_mrizku_zamestnanec_id_vyplneny(conn):
+    id_alena, _ = _ulozit_zakladni_rozpis(conn)
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    assert mrizka.radky[0].zamestnanec_id == id_alena
+
+
+def test_sestavit_mrizku_zamcena_bunka(conn):
+    _ulozit_zakladni_rozpis(conn)
+    smena_id = repo.smeny_v_mesici(conn, 2026, 8)[0].id
+    repo.zamknout_smeny(conn, [smena_id])
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    alena = mrizka.radky[0]
+    assert alena.bunky[0].zamcena is True
+    assert alena.bunky[1].zamcena is False
+
+
+def test_sestavit_mrizku_duvod_poruseni_n_pak_d(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena",),
+        smeny={("Alena", 1): "N", ("Alena", 2): "D"},
+        status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    bunka_den_2 = mrizka.radky[0].bunky[1]
+    assert bunka_den_2.duvod_poruseni is not None
+    assert "po noční" in bunka_den_2.duvod_poruseni
+
+
+def test_sestavit_mrizku_bez_poruseni_je_none(conn):
+    _ulozit_zakladni_rozpis(conn)
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    assert mrizka.radky[0].bunky[0].duvod_poruseni is None
+
+
+def test_sestavit_mrizku_varovani_fond_pres_limit(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.ulozit_nastaveni(conn, NastaveniProfilu(
+        profil="normalni", denni_min=0, denni_max=99, nocni_min=0, nocni_max=99,
+        max_v_rade=99, max_smen_mesic=1,
+    ))
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena",),
+        smeny={("Alena", 1): "D", ("Alena", 3): "D"},
+        status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    assert mrizka.radky[0].varovani
+    assert "strop" in mrizka.radky[0].varovani[0]
+
+
+def test_sestavit_mrizku_dny_s_porusenim_pod_minimem(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.ulozit_nastaveni(conn, NastaveniProfilu(
+        profil="normalni", denni_min=2, denni_max=4, nocni_min=0, nocni_max=99,
+        max_v_rade=99, max_smen_mesic=99,
+    ))
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena",), smeny={("Alena", 1): "D"},
+        status="OPTIMAL", cas_reseni=0.1,
+    )
+    repo.ulozit_rozpis(conn, schedule)
+
+    mrizka = sestavit_mrizku(conn, 2026, 8, je_admin=True)
+    assert mrizka.dny_s_porusenim[0] is True  # jen 1 denní, min je 2
 
 
 # --- HTTP vrstva: role a měsíc (viz zadani-faze3-web.md, úkol 3) ---
