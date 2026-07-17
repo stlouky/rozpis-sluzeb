@@ -4,15 +4,9 @@
 {% include "_hlavicka.html" %}
 <main>
   <div class="mesic-nav">
-    {% if je_admin %}
-      <a href="/rozpis/prepis?mesic={{ predchozi_mesic }}">&larr; předchozí</a>
-    {% else %}
-      <span></span>
-    {% endif %}
+    <a href="/rozpis/prepis?mesic={{ predchozi_mesic }}">&larr; předchozí</a>
     <h1>Přepis do Cygnusu {{ '%02d'|format(prepis.mesic) }}/{{ prepis.rok }}</h1>
-    {% if je_admin %}
-      <a href="/rozpis/prepis?mesic={{ dalsi_mesic }}">další &rarr;</a>
-    {% endif %}
+    <a href="/rozpis/prepis?mesic={{ dalsi_mesic }}">další &rarr;</a>
   </div>
 
   <p>

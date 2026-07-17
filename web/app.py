@@ -138,17 +138,6 @@ def _rozlozit_mesic(mesic: str | None) -> tuple[int, int]:
     return dnes.year, dnes.month
 
 
-def _cilovy_mesic(je_admin: bool, mesic: str | None) -> tuple[int, int]:
-    """Admin smí listovat libovolný měsíc (parametr mesic), role nahled
-    vidí VŽDY jen aktuální měsíc bez ohledu na to, co je v URL (viz
-    zadani-faze3-web.md) - sdíleno mezi /rozpis, /rozpis/prepis a
-    /rozpis/pdf, ať se tohle pravidlo nerozjede na tři místa zvlášť."""
-    if je_admin:
-        return _rozlozit_mesic(mesic)
-    dnes = date.today()
-    return dnes.year, dnes.month
-
-
 def _sousedni_mesice(rok: int, mes: int) -> tuple[str, str]:
     predchozi_rok, predchozi_mes = (rok - 1, 12) if mes == 1 else (rok, mes - 1)
     dalsi_rok, dalsi_mes = (rok + 1, 1) if mes == 12 else (rok, mes + 1)
@@ -204,7 +193,7 @@ def rozpis_mesice(
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
     je_admin = uzivatel.role == "admin"
-    rok, mes = _cilovy_mesic(je_admin, mesic)
+    rok, mes = _rozlozit_mesic(mesic)
 
     return _vykreslit_rozpis(
         request, conn, uzivatel, rok, mes, je_admin,
@@ -808,7 +797,7 @@ def rozpis_prepis(
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
     je_admin = uzivatel.role == "admin"
-    rok, mes = _cilovy_mesic(je_admin, mesic)
+    rok, mes = _rozlozit_mesic(mesic)
     prepis = sestavit_prepis(conn, rok, mes)
     predchozi_mesic, dalsi_mesic = _sousedni_mesice(rok, mes)
 
@@ -836,7 +825,7 @@ def rozpis_pdf(
     neimplementuje). Zapisuje se do dočasného souboru, ať se
     vygenerovat_pdf nemusí měnit - smaže se hned po odeslání odpovědi."""
     je_admin = uzivatel.role == "admin"
-    rok, mes = _cilovy_mesic(je_admin, mesic)
+    rok, mes = _rozlozit_mesic(mesic)
     schedule = schedule_z_db(conn, rok, mes)
 
     fd, cesta = tempfile.mkstemp(suffix=".pdf")

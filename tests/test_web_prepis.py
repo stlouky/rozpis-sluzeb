@@ -66,11 +66,12 @@ def test_prepis_odkaz_na_pdf_je_na_strance(klient):
     assert "/rozpis/pdf?mesic=2026-08" in odpoved.text
 
 
-def test_nahled_vidi_prepis_ale_jen_aktualni_mesic(klient_nahled):
-    # jiný měsíc v URL se pro roli nahled ignoruje (stejné pravidlo jako
-    # u /rozpis, viz web/app.py:_cilovy_mesic)
+def test_nahled_smi_listovat_libovolny_mesic(klient_nahled):
+    # nahled smí navigovat stejně jako admin (na přání zrušeno omezení
+    # "jen aktuální měsíc" - viz STAV-FAZE3.md)
     odpoved = klient_nahled.get("/rozpis/prepis?mesic=1999-01")
     assert odpoved.status_code == 200
+    assert "01/1999" in odpoved.text
 
 
 def test_pdf_stahne_platny_soubor(klient):

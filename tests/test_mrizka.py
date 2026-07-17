@@ -350,21 +350,13 @@ def test_admin_muze_zobrazit_libovolny_mesic(klient):
     assert "01/2020" in odpoved.text
 
 
-def test_nahled_ignoruje_parametr_mesic_a_vidi_jen_aktualni(klient, monkeypatch):
-    import web.app as app_modul
-
-    class _Dnes(date):
-        @classmethod
-        def today(cls):
-            return date(2026, 8, 15)
-
-    monkeypatch.setattr(app_modul, "date", _Dnes)
-
+def test_nahled_smi_listovat_libovolny_mesic(klient):
+    # na přání zrušeno omezení "jen aktuální měsíc" (viz STAV-FAZE3.md) -
+    # nahled navigaci teď má stejně jako admin.
     _prihlasit(klient, "nahled", "tajneheslo2")
     odpoved = klient.get("/rozpis?mesic=2020-01")
     assert odpoved.status_code == 200
-    assert "08/2026" in odpoved.text
-    assert "01/2020" not in odpoved.text
+    assert "01/2020" in odpoved.text
 
 
 def test_nahled_nevidi_poznamku_admin_ano(klient):
@@ -378,11 +370,11 @@ def test_nahled_nevidi_poznamku_admin_ano(klient):
     assert "tajna-poznamka-xyz" not in odpoved_nahled.text
 
 
-def test_nahled_nema_navigaci_na_jiny_mesic(klient):
+def test_nahled_ma_navigaci_na_jiny_mesic(klient):
     _prihlasit(klient, "nahled", "tajneheslo2")
     odpoved = klient.get("/rozpis")
-    assert "předchozí" not in odpoved.text
-    assert "další" not in odpoved.text
+    assert "předchozí" in odpoved.text
+    assert "další" in odpoved.text
 
 
 def test_admin_ma_navigaci_na_jiny_mesic(klient):
