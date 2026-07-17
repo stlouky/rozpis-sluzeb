@@ -162,6 +162,49 @@ Vývoj musí běžet na stejné verzi jako produkce:
 - Testy: locked se nezmění; diff odpovídá; nesplnitelno po zamčení
   vrací použitelnou radu
 
+### Úkol 9b — samoobslužné podávání požadavků (revize řádku 201–202)
+Revize původního rozhodnutí "NEIMPLEMENTUJE SE" níž (Co záměrně NEDĚLAT) —
+domluveno 2026 (viz konverzace), typ POZADAVEK v datech už existuje od
+začátku, tenhle úkol mu dává vlastní UI a schvalovací workflow místo
+ručního zadávání admin/CLI.
+
+- MIGRACE: `nedostupnost` dostane sloupec
+  `stav TEXT NOT NULL DEFAULT 'schvaleno' CHECK (stav IN ('podano',
+  'schvaleno', 'zamitnuto'))` přes `ALTER TABLE ADD COLUMN` (stejný vzor
+  jako `zakaz_smeny`/`max_za_sebou`, SQLite 3.25+ zvládne CHECK bez
+  přetvoření tabulky). Výchozí `'schvaleno'` zachová beze změny chování
+  všechno, co dnes admin/CLI/import zapisuje přímo.
+- `db/bridge.py:config_pro_mesic` bere do solveru jen `stav='schvaleno'`
+  — `'podano'` se do rozpisu nepromítne, dokud ho admin neschválí; žádné
+  riziko, že se nepotvrzený požadavek stane závazným.
+- `'zamitnuto'` se nemaže, zůstává v historii (konzistentní s tím, že se
+  v repu nic nemaže).
+- Repository (`db/repository.py`, styl stávajících funkcí):
+  `pridat_pozadavek(conn, zamestnanec_id, od, do, popis, zakazana_smena=None)`
+  — wrapper nad `pridat_nedostupnost` s `typ='POZADAVEK', stav='podano'`;
+  odmítne (ValueError), pokud zaměstnanec není aktivní k datu `od`
+  (`aktivni_zamestnanci_v_obdobi`). `schvalit_pozadavek(conn, id)` /
+  `zamitnout_pozadavek(conn, id)` — UPDATE stav.
+- Nová stránka `/pozadavky` (obě role): tabulka kdo / od–do / popis /
+  stav + tlačítko "Nový požadavek" (výběr zaměstnance z aktivních,
+  kalendář od–do, popis). `POST /pozadavky` smí obě role. Admin navíc
+  vidí tlačítka schválit/zamítnout (`POST /pozadavky/{id}/schvalit` a
+  `/zamitnout`, 403 pro nahled).
+- Systém nepotřebuje vědět, KDO požadavek zadal (sdílený nahled/host
+  účet nemá per-osobu identitu) — jen PRO KOHO je určen (výběr
+  zaměstnance ve formuláři). Žádné pole "podal" se nepřidává.
+- ZMĚNA bezpečnostního invariantu č. 4 (jen pro typ POZADAVEK): nahled
+  vidí popis požadavku u VŠECH položek na `/pozadavky`, ne jen svých —
+  jinak nemá jak zjistit, jestli se něco vyřídilo. Poznámka u DOV/NEM
+  (admin-only, ostatní typy nedostupnosti) zůstává skrytá jako dosud —
+  tahle výjimka platí striktně jen pro `/pozadavky` a typ POZADAVEK.
+- Testy: pridat_pozadavek odmítne neaktivního zaměstnance; nový
+  self-service požadavek má stav 'podano'; config_pro_mesic ignoruje
+  'podano'/'zamitnuto', počítá jen 'schvaleno'; nahled smí POST
+  /pozadavky, ale dostane 403 na schvalit/zamitnout; existující řádky
+  bez sloupce stav (migrace) se chovají jako 'schvaleno' (staré testy
+  beze změny).
+
 ### Úkol 10 — deploy na Hetzner (až funguje 1–9 lokálně)
 Řídí se souborem DEPLOY.md (průzkum serveru 17.7.2026 — Caddy 2.6.2,
 rbscanner na 127.0.0.1:8080, Python 3.13, port 8081 volný).
@@ -198,5 +241,6 @@ Konkréta pro tento server:
 - Žádný React/Vue/HTMX, Tailwind, Docker, async fronty, websockety
 - Žádný export/API směrem do Cygnusu — přepis je záměrně ruční
 - Žádná samoobslužná registrace či reset hesla e-mailem
-- Zadávání požadavků zaměstnanci (fáze 7) se NEIMPLEMENTUJE — jen typ
-  POZADAVEK v datech zůstává, kdyby padlo rozhodnutí později
+- ~~Zadávání požadavků zaměstnanci se NEIMPLEMENTUJE~~ — revidováno,
+  viz Úkol 9b (typ POZADAVEK v datech existoval od začátku právě pro
+  tenhle případ)
