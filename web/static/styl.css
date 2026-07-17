@@ -1,0 +1,76 @@
+/* Jeden CSS soubor pro celý web (viz CLAUDE.md). Barvy mřížky (žlutá D,
+   modrá N, zelená DOV) přibudou v úkolu 3 - tohle je zatím jen kostra. */
+
+:root {
+  --barva-text: #1a1a1a;
+  --barva-pozadi: #f7f7f5;
+  --barva-chyba: #b3261e;
+  --barva-ramecek: #d0d0cc;
+  --barva-akcent: #2c5f8a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  color: var(--barva-text);
+  background: var(--barva-pozadi);
+  margin: 0;
+  padding: 2rem;
+}
+
+.prihlaseni {
+  max-width: 20rem;
+  margin: 4rem auto;
+}
+
+.prihlaseni form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.prihlaseni label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+input,
+button {
+  padding: 0.5rem;
+  font-size: 1rem;
+  border: 1px solid var(--barva-ramecek);
+  border-radius: 4px;
+}
+
+button {
+  cursor: pointer;
+  background: var(--barva-akcent);
+  color: white;
+  border: none;
+}
+
+.chyba {
+  color: var(--barva-chyba);
+}
+
+.hlavicka {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.hlavicka form {
+  display: inline;
+}
+
+.hlavicka button {
+  background: transparent;
+  color: var(--barva-text);
+  border: 1px solid var(--barva-ramecek);
+}

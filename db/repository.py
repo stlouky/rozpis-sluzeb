@@ -10,7 +10,7 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from .models import Dvojice, Nedostupnost, Zamestnanec
+from .models import Dvojice, Nedostupnost, Uzivatel, Zamestnanec
 
 SCHEMA_CESTA = Path(__file__).resolve().parent / "schema.sql"
 
@@ -29,6 +29,19 @@ def inicializovat_schema(conn: sqlite3.Connection) -> None:
     with open(SCHEMA_CESTA, encoding="utf-8") as f:
         conn.executescript(f.read())
     conn.commit()
+
+
+def pripojit_a_inicializovat(cesta: str | Path) -> sqlite3.Connection:
+    """Otevře DB a při prvním použití (soubor ještě neexistoval) rovnou
+    inicializuje schéma. Sdíleno mezi CLI a webem, ať mají obě vstupní
+    místa stejné chování při "čerstvé" databázi.
+    """
+    cesta_str = str(cesta)
+    nova = cesta_str != ":memory:" and not Path(cesta_str).exists()
+    conn = pripojit(cesta)
+    if nova:
+        inicializovat_schema(conn)
+    return conn
 
 
 def _na_datum(hodnota: str | None) -> date | None:
@@ -64,6 +77,15 @@ def _dvojice_z_radku(radek: sqlite3.Row) -> Dvojice:
         zamestnanec_a_id=radek["zamestnanec_a_id"],
         zamestnanec_b_id=radek["zamestnanec_b_id"],
         typ=radek["typ"],
+    )
+
+
+def _uzivatel_z_radku(radek: sqlite3.Row) -> Uzivatel:
+    return Uzivatel(
+        id=radek["id"],
+        jmeno=radek["jmeno"],
+        heslo_hash=radek["heslo_hash"],
+        role=radek["role"],
     )
 
 
@@ -192,3 +214,29 @@ def pridat_dvojici(
 def dvojice_vsechny(conn: sqlite3.Connection) -> list[Dvojice]:
     radky = conn.execute("SELECT * FROM dvojice ORDER BY id").fetchall()
     return [_dvojice_z_radku(r) for r in radky]
+
+
+# --- uživatelé ---
+
+def vytvorit_uzivatele(conn: sqlite3.Connection, jmeno: str, heslo_hash: str, role: str) -> int:
+    kurzor = conn.execute(
+        "INSERT INTO uzivatel (jmeno, heslo_hash, role) VALUES (?, ?, ?)",
+        (jmeno, heslo_hash, role),
+    )
+    conn.commit()
+    return kurzor.lastrowid
+
+
+def uzivatel_podle_jmena(conn: sqlite3.Connection, jmeno: str) -> Uzivatel | None:
+    radek = conn.execute("SELECT * FROM uzivatel WHERE jmeno = ?", (jmeno,)).fetchone()
+    return _uzivatel_z_radku(radek) if radek else None
+
+
+def uzivatel_podle_id(conn: sqlite3.Connection, uzivatel_id: int) -> Uzivatel | None:
+    radek = conn.execute("SELECT * FROM uzivatel WHERE id = ?", (uzivatel_id,)).fetchone()
+    return _uzivatel_z_radku(radek) if radek else None
+
+
+def zmenit_heslo(conn: sqlite3.Connection, uzivatel_id: int, heslo_hash: str) -> None:
+    conn.execute("UPDATE uzivatel SET heslo_hash = ? WHERE id = ?", (heslo_hash, uzivatel_id))
+    conn.commit()

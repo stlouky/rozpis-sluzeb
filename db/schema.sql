@@ -50,3 +50,13 @@ CREATE TABLE IF NOT EXISTS dvojice (
     -- 'zakazano' = tvrdé (spolu nesmí NIKDY, viz solver.Config.zakazane_dvojice)
     typ TEXT NOT NULL DEFAULT 'rozprostrit' CHECK (typ IN ('rozprostrit', 'zakazano'))
 );
+
+-- Uživatelské účty pro webové rozhraní (fáze 3). Bez registrace přes web -
+-- zakládají se výhradně přes CLI (db/cli.py vytvorit-uzivatele), viz
+-- zadani-faze3-web.md, bezpečnostní invarianty.
+CREATE TABLE IF NOT EXISTS uzivatel (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    jmeno TEXT NOT NULL UNIQUE,
+    heslo_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'nahled'))
+);

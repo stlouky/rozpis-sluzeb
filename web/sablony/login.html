@@ -1,0 +1,17 @@
+{% extends "_layout.html" %}
+{% block titulek %}Přihlášení – Rozpis služeb{% endblock %}
+{% block obsah %}
+<main class="prihlaseni">
+  <h1>Rozpis služeb</h1>
+  {% if chyba %}<p class="chyba">{{ chyba }}</p>{% endif %}
+  <form method="post" action="/login">
+    <label>Jméno
+      <input type="text" name="jmeno" required autofocus>
+    </label>
+    <label>Heslo
+      <input type="password" name="heslo" required>
+    </label>
+    <button type="submit">Přihlásit</button>
+  </form>
+</main>
+{% endblock %}

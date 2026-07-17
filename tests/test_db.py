@@ -1,5 +1,6 @@
 """Testy datové vrstvy nad SQLite (fáze 2)."""
 
+import sqlite3
 from datetime import date
 
 import pytest
@@ -322,6 +323,35 @@ def test_dvojice_z_db_ovlivni_vygenerovany_rozpis(conn):
                 f"den {den}: Cyril i Karel slouží stejnou směnu, ačkoli "
                 "jsou v DB zadaní jako neslučitelná dvojice"
             )
+
+
+def test_vytvorit_uzivatele_a_najit_podle_jmena_i_id(conn):
+    id_ = repo.vytvorit_uzivatele(conn, "vedouci", "hash123", "admin")
+
+    podle_jmena = repo.uzivatel_podle_jmena(conn, "vedouci")
+    assert podle_jmena is not None
+    assert podle_jmena.id == id_
+    assert podle_jmena.role == "admin"
+    assert podle_jmena.heslo_hash == "hash123"
+
+    podle_id = repo.uzivatel_podle_id(conn, id_)
+    assert podle_id == podle_jmena
+
+
+def test_uzivatel_podle_jmena_neexistujici_vraci_none(conn):
+    assert repo.uzivatel_podle_jmena(conn, "neznamy") is None
+
+
+def test_zmenit_heslo(conn):
+    id_ = repo.vytvorit_uzivatele(conn, "vedouci", "puvodni_hash", "nahled")
+    repo.zmenit_heslo(conn, id_, "novy_hash")
+
+    assert repo.uzivatel_podle_id(conn, id_).heslo_hash == "novy_hash"
+
+
+def test_uzivatel_role_musi_byt_admin_nebo_nahled(conn):
+    with pytest.raises(sqlite3.IntegrityError):
+        repo.vytvorit_uzivatele(conn, "spatna_role", "hash", "superadmin")
 
 
 def test_zrusit_nedostupnost(conn):

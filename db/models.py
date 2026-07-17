@@ -37,3 +37,11 @@ class Dvojice:
     zamestnanec_a_id: int
     zamestnanec_b_id: int
     typ: str
+
+
+@dataclass(frozen=True)
+class Uzivatel:
+    id: int
+    jmeno: str
+    heslo_hash: str
+    role: str  # 'admin' | 'nahled'

@@ -2,6 +2,8 @@
 
 import pytest
 
+from db import repository as repo
+from db.auth import overit_heslo
 from db.cli import main
 
 VSICH_12 = [
@@ -147,3 +149,38 @@ def test_cli_generuj_s_pdf_ulozi_soubor(tmp_path, capsys):
     assert cesta_pdf.exists()
     assert cesta_pdf.read_bytes().startswith(b"%PDF")
     assert "PDF uloženo" in vystup
+
+
+def test_cli_vytvorit_uzivatele_s_heslem_z_flagu(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    main([
+        "--db", str(cesta_db), "vytvorit-uzivatele", "vedouci", "admin",
+        "--heslo", "tajneheslo123",
+    ])
+    vystup = capsys.readouterr().out
+    assert "Uživatel vytvořen" in vystup
+
+    conn = repo.pripojit(cesta_db)
+    uzivatel = repo.uzivatel_podle_jmena(conn, "vedouci")
+    assert uzivatel is not None
+    assert uzivatel.role == "admin"
+    assert overit_heslo("tajneheslo123", uzivatel.heslo_hash)
+    assert uzivatel.heslo_hash != "tajneheslo123"  # nikdy plain text
+
+
+def test_cli_zmenit_heslo(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    main([
+        "--db", str(cesta_db), "vytvorit-uzivatele", "vedouci", "nahled",
+        "--heslo", "puvodni123",
+    ])
+    capsys.readouterr()
+
+    main(["--db", str(cesta_db), "zmenit-heslo", "1", "--heslo", "nove456"])
+    vystup = capsys.readouterr().out
+    assert "změněno" in vystup
+
+    conn = repo.pripojit(cesta_db)
+    uzivatel = repo.uzivatel_podle_id(conn, 1)
+    assert overit_heslo("nove456", uzivatel.heslo_hash)
+    assert not overit_heslo("puvodni123", uzivatel.heslo_hash)

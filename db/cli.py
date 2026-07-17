@@ -3,23 +3,33 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 from datetime import date
 from pathlib import Path
 
 from solver.core import NelzeSestavitError, generate_schedule
 
 from . import repository as repo
+from .auth import hashovat_heslo
 from .bridge import DEFAULT_CONFIG_YAML, config_pro_mesic
 
 DEFAULT_DB = Path(__file__).resolve().parent.parent / "rozpis.db"
 
 
 def _pripojit_a_inicializovat(cesta: Path):
-    nova = not cesta.exists()
-    conn = repo.pripojit(cesta)
-    if nova:
-        repo.inicializovat_schema(conn)
-    return conn
+    return repo.pripojit_a_inicializovat(cesta)
+
+
+def _precist_heslo(zadane: str | None) -> str:
+    """Vrátí heslo z --heslo (automatizace/testy), jinak bezpečně vyzve
+    přes getpass (heslo se nepropisuje do shell historie ani `ps`)."""
+    if zadane is not None:
+        return zadane
+    heslo = getpass.getpass("Heslo: ")
+    if heslo != getpass.getpass("Heslo znovu: "):
+        print("Hesla se neshodují.")
+        raise SystemExit(1)
+    return heslo
 
 
 def _cmd_pridat_zamestnance(args: argparse.Namespace) -> None:
@@ -61,6 +71,20 @@ def _cmd_pridat_dvojici(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
     id_ = repo.pridat_dvojici(conn, args.zamestnanec_a_id, args.zamestnanec_b_id, args.typ)
     print(f"Dvojice přidána, id={id_}")
+
+
+def _cmd_vytvorit_uzivatele(args: argparse.Namespace) -> None:
+    heslo = _precist_heslo(args.heslo)
+    conn = _pripojit_a_inicializovat(Path(args.db))
+    id_ = repo.vytvorit_uzivatele(conn, args.jmeno, hashovat_heslo(heslo), args.role)
+    print(f"Uživatel vytvořen, id={id_}")
+
+
+def _cmd_zmenit_heslo(args: argparse.Namespace) -> None:
+    heslo = _precist_heslo(args.heslo)
+    conn = _pripojit_a_inicializovat(Path(args.db))
+    repo.zmenit_heslo(conn, args.id, hashovat_heslo(heslo))
+    print(f"Heslo uživatele {args.id} změněno")
 
 
 def _cmd_seznam_zamestnancu(args: argparse.Namespace) -> None:
@@ -134,6 +158,17 @@ def main(argv: list[str] | None = None) -> int:
         help="rozprostrit = měkké (penalizace), zakazano = tvrdé (nikdy spolu)",
     )
     p.set_defaults(func=_cmd_pridat_dvojici)
+
+    p = sub.add_parser("vytvorit-uzivatele", help="vytvořit uživatelský účet pro web (bez registrace přes web)")
+    p.add_argument("jmeno")
+    p.add_argument("role", choices=["admin", "nahled"])
+    p.add_argument("--heslo", help="bez zadání se bezpečně vyzve přes prompt (doporučeno)")
+    p.set_defaults(func=_cmd_vytvorit_uzivatele)
+
+    p = sub.add_parser("zmenit-heslo", help="změnit heslo existujícího uživatele")
+    p.add_argument("id", type=int)
+    p.add_argument("--heslo", help="bez zadání se bezpečně vyzve přes prompt (doporučeno)")
+    p.set_defaults(func=_cmd_zmenit_heslo)
 
     p = sub.add_parser("seznam-zamestnancu", help="vypsat aktivní zaměstnance k datu")
     p.add_argument("--datum", help="YYYY-MM-DD, výchozí dnešek")
