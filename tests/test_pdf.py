@@ -2,7 +2,15 @@
 
 from solver.config import config_from_dict
 from solver.core import generate_schedule
-from vystup.pdf import BARVA_DOV, BARVA_OST, STITEK_OST, _hlavni_tabulka, vygenerovat_pdf
+from solver.schedule import Schedule
+from vystup.pdf import (
+    BARVA_DOV,
+    BARVA_OST,
+    STITEK_OST,
+    _hlavni_tabulka,
+    _legenda_text,
+    vygenerovat_pdf,
+)
 
 ZAMESTNANCI_12 = [
     "Alena", "Bedrich", "Cyril", "Dana", "Emil", "Frantiska",
@@ -78,3 +86,21 @@ def test_ost_ma_text_a_bilé_pozadí():
 
     assert tabulka._cellvalues[3][1] == STITEK_OST
     assert ("BACKGROUND", (1, 3), (1, 3), BARVA_OST) in tabulka._bkgrndcmds
+
+
+# --- audit: "Řešení: ULOZENO" na nástěnce nikomu nic neřekne ---
+
+def test_legenda_text_obsahuje_stav_solveru_pro_cerstve_reseni():
+    schedule = _schedule()  # status OPTIMAL/FEASIBLE ze skutečného solveru
+    text = _legenda_text(schedule)
+    assert f"Řešení: {schedule.status}." in text
+
+
+def test_legenda_text_vynecha_vetu_pro_ulozena_data():
+    schedule = Schedule(
+        rok=2026, mesic=8, jmena=("Alena",), smeny={},
+        status="ULOZENO", cas_reseni=0.0,
+    )
+    text = _legenda_text(schedule)
+    assert "Řešení:" not in text
+    assert "ULOZENO" not in text

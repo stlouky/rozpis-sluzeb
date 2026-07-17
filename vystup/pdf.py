@@ -36,6 +36,13 @@ BARVA_MRIZKY = colors.HexColor("#BBBBBB")
 
 STITEK_OST = "OST"
 
+# Jediné dva stavy, které generate_schedule vůbec vrátí (viz solver/core.py -
+# jinak vyhodí NelzeSestavitError). schedule_z_db (db/bridge.py) ale pro
+# zobrazení uložených dat vrací Schedule se status="ULOZENO" - tahle
+# hodnota by na nástěnce nikomu nic neřekla, proto se věta "Řešení: ..."
+# vypisuje jen pro skutečný výsledek solveru (viz _legenda_text níž).
+STAVY_SOLVERU = {"OPTIMAL", "FEASIBLE"}
+
 # Štítky směn ve stylu, na jaký je vedoucí zvyklá z Cygnusu (NAVRH.md:
 # "barevná mřížka jako v Cygnusu ... vedoucí to už zná"). Bez konkrétních
 # časů - ty Schedule nenese (jen D/N), přesné hodiny řeší Cygnus.
@@ -147,6 +154,20 @@ def _souhrn_tabulka(schedule: Schedule) -> Table:
     return tabulka
 
 
+def _legenda_text(schedule: Schedule) -> str:
+    """Popisek pod nadpisem - věta o stavu solveru se připojí, jen když
+    schedule pochází z čerstvého řešení (OPTIMAL/FEASIBLE). Data načtená
+    z DB (schedule_z_db, status="ULOZENO") větu vynechají - "Řešení:
+    ULOZENO." by na nástěnce nikomu nic neřeklo (viz audit)."""
+    text = (
+        f"{STITEK_DENNI} = denní, {STITEK_NOCNI} = noční, prázdné = volno, "
+        f"šedě = víkend, zeleně = dovolená, {STITEK_OST} = soukromé volno."
+    )
+    if schedule.status in STAVY_SOLVERU:
+        text += f" Řešení: {schedule.status}."
+    return text
+
+
 def vygenerovat_pdf(schedule: Schedule, cesta: str | Path) -> None:
     """Vytiskne rozpis jako A4 PDF na šířku, vhodné pro nástěnku."""
     _zaregistrovat_fonty()
@@ -166,12 +187,7 @@ def vygenerovat_pdf(schedule: Schedule, cesta: str | Path) -> None:
 
     prvky = [
         Paragraph(f"Rozpis služeb {nazev_mesice}", styly["Title"]),
-        Paragraph(
-            f"{STITEK_DENNI} = denní, {STITEK_NOCNI} = noční, prázdné = volno, "
-            f"šedě = víkend, zeleně = dovolená, {STITEK_OST} = soukromé volno. "
-            f"Řešení: {schedule.status}.",
-            styly["Normal"],
-        ),
+        Paragraph(_legenda_text(schedule), styly["Normal"]),
         Spacer(1, 4 * mm),
         KeepTogether(_hlavni_tabulka(schedule)),
         Spacer(1, 6 * mm),

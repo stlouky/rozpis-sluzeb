@@ -719,7 +719,14 @@ def rozpis_pdf(
 
     fd, cesta = tempfile.mkstemp(suffix=".pdf")
     os.close(fd)
-    vygenerovat_pdf(schedule, cesta)
+    try:
+        vygenerovat_pdf(schedule, cesta)
+    except Exception:
+        # Bez tohohle by při chybě uvnitř vygenerovat_pdf (viz audit)
+        # dočasný soubor zůstal v /tmp navždy - BackgroundTask níž se
+        # zaregistruje, jen když FileResponse vůbec vznikne.
+        os.unlink(cesta)
+        raise
 
     return FileResponse(
         cesta,
