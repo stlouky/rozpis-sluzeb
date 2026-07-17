@@ -144,13 +144,20 @@ def _cmd_import_txt(args: argparse.Namespace) -> None:
 
             vysledek = rozpoznat_typ(polozka.popis)
             if vysledek is None:
-                print(
-                    f"Řádek {cislo_radku}: neznámý typ nepřítomnosti "
-                    f"„{polozka.popis}“ u {polozka.jmeno} - použit OST."
+                # Dřív se tu hádal fallback na OST a jen se to vypsalo -
+                # přesně tenhle vzorec (tichý odhad zapsaný do DB) jednou
+                # už způsobil chybu (viz je_konec_pomeru výš, incident
+                # s "končí (ve zkušební době)" mylně zapsaným jako OST).
+                # Nerozpoznaný popis je teď chyba jako neznámé jméno -
+                # radši se zastavit a nechat to doplnit v db/import_txt.py
+                # nebo opravit v souboru, než tiše zapsat špatnou hodnotu.
+                chyby.append(
+                    f"řádek {cislo_radku}: nerozpoznaný typ nepřítomnosti "
+                    f"„{polozka.popis}“ u {polozka.jmeno} - není to ani "
+                    f"nedostupnost, ani konec poměru"
                 )
-                typ, zakazana_smena = "OST", None
-            else:
-                typ, zakazana_smena = vysledek
+                continue
+            typ, zakazana_smena = vysledek
 
             # Idempotence: (zaměstnanec, od, do, typ) už existuje -> přeskočit.
             existujici = repo.nedostupnosti_v_obdobi(conn, polozka.od, polozka.do)

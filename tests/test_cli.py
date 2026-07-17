@@ -295,13 +295,17 @@ def test_import_txt_prida_zamestnance_a_nedostupnosti(tmp_path, capsys):
     cesta_db = tmp_path / "test.db"
     with pytest.raises(SystemExit) as excinfo:
         _import_fiktivni(cesta_db)
-    assert excinfo.value.code == 1  # jeden řádek s neznámým jménem v pozadavky_fiktivni.txt
+    # dva řádky v pozadavky_fiktivni.txt jsou chybné: neznámé jméno a
+    # nerozpoznaný typ nepřítomnosti (dřív se to druhé tiše odhadlo jako
+    # OST - teď je to taky chyba, viz db/cli.py)
+    assert excinfo.value.code == 1
     vystup = capsys.readouterr().out
 
     assert "3 zaměstnanců přidáno" in vystup
-    assert "5 nedostupností přidáno" in vystup
+    assert "4 nedostupností přidáno" in vystup
     assert "neznámý zaměstnanec „Neznámá Osoba“" in vystup
-    assert "neznámý typ nepřítomnosti" in vystup.lower()  # OST fallback hláška
+    assert "nerozpoznaný typ nepřítomnosti" in vystup.lower()
+    assert "nějaký exotický důvod" in vystup
 
     conn = repo.pripojit(cesta_db)
     zamestnanci = repo.vsichni_zamestnanci(conn)
@@ -315,7 +319,7 @@ def test_import_txt_prida_zamestnance_a_nedostupnosti(tmp_path, capsys):
     id_uzazka = next(z.id for z in zamestnanci if z.jmeno == "Ukázka Cyril")
 
     nedostupnosti = repo.nedostupnosti_v_obdobi(conn, date(2026, 1, 1), date(2026, 12, 31))
-    assert len(nedostupnosti) == 5
+    assert len(nedostupnosti) == 4
 
     dovolena = next(n for n in nedostupnosti if n.zamestnanec_id == id_testovska and n.typ == "DOV")
     assert dovolena.od == dovolena.do == date(2026, 3, 5)
@@ -332,9 +336,12 @@ def test_import_txt_prida_zamestnance_a_nedostupnosti(tmp_path, capsys):
     assert pozadavek_n.od == date(2026, 3, 1)
     assert pozadavek_n.do == date(2026, 3, 3)
 
+    # "volno" se úspěšně zpracuje jako OST; "nějaký exotický důvod" (druhý
+    # řádek pro Ukázku) skončí jako chyba výš, ne jako druhý OST záznam
     ost_zaznamy = [n for n in nedostupnosti if n.zamestnanec_id == id_uzazka]
-    assert len(ost_zaznamy) == 2  # "volno" i neznámý popis oba padnou do OST
-    assert all(n.typ == "OST" for n in ost_zaznamy)
+    assert len(ost_zaznamy) == 1
+    assert ost_zaznamy[0].typ == "OST"
+    assert ost_zaznamy[0].od == date(2026, 3, 10)
 
 
 def test_import_txt_je_idempotentni(tmp_path, capsys):
@@ -354,7 +361,7 @@ def test_import_txt_je_idempotentni(tmp_path, capsys):
 
     conn = repo.pripojit(cesta_db)
     assert len(repo.vsichni_zamestnanci(conn)) == 3
-    assert len(repo.nedostupnosti_v_obdobi(conn, date(2026, 1, 1), date(2026, 12, 31))) == 5
+    assert len(repo.nedostupnosti_v_obdobi(conn, date(2026, 1, 1), date(2026, 12, 31))) == 4
 
 
 def test_import_txt_konec_pomeru_nastavi_aktivni_do_ne_nedostupnost(tmp_path, capsys):
@@ -382,3 +389,29 @@ def test_import_txt_konec_pomeru_nastavi_aktivni_do_ne_nedostupnost(tmp_path, ca
     zamestnanec = repo.zamestnanec_podle_jmena(conn, "Testovská Anna")
     assert zamestnanec.aktivni_do == date(2026, 8, 16)
     assert repo.nedostupnosti_v_obdobi(conn, date(2026, 8, 1), date(2026, 8, 31)) == []
+
+
+def test_import_txt_neznamy_typ_je_chyba_s_citaci_radku_ne_ost_odhad(tmp_path, capsys):
+    # dřív se nerozpoznaný popis tiše odhadl jako OST a zapsal do DB - to
+    # je přesně vzorec, který jednou vytvořil chybu (viz konec poměru
+    # výš). Teď to musí být chyba, žádný zápis.
+    zamestnanci_soubor = tmp_path / "zamestnanci.txt"
+    zamestnanci_soubor.write_text("Testovská Anna\n", encoding="utf-8")
+    pozadavky_soubor = tmp_path / "pozadavky.txt"
+    pozadavky_soubor.write_text("5.3, Testovská, nějaký nesmyslný důvod\n", encoding="utf-8")
+
+    cesta_db = tmp_path / "test.db"
+    with pytest.raises(SystemExit) as excinfo:
+        main([
+            "--db", str(cesta_db), "import-txt",
+            str(zamestnanci_soubor), str(pozadavky_soubor), "--rok", "2026",
+        ])
+    assert excinfo.value.code == 1
+    vystup = capsys.readouterr().out
+
+    assert "řádek 1" in vystup
+    assert "nějaký nesmyslný důvod" in vystup
+    assert "0 nedostupností přidáno" in vystup
+
+    conn = repo.pripojit(cesta_db)
+    assert repo.nedostupnosti_v_obdobi(conn, date(2026, 1, 1), date(2026, 12, 31)) == []

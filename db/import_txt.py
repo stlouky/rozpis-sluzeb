@@ -35,8 +35,9 @@ _TYP_VZORY: list[tuple[re.Pattern[str], str, str | None]] = [
 
 def rozpoznat_typ(popis: str) -> tuple[str, str | None] | None:
     """Vrátí (typ, zakazana_smena) podle klíčových slov v popisu, nebo None,
-    když popis nesedí na žádný známý vzor - volající pak zvolí výchozí OST
-    a nahlásí to (viz db/cli.py), místo tichého uhádnutí."""
+    když popis nesedí na žádný známý vzor - volající to musí nahlásit jako
+    chybu (viz db/cli.py), NE tiše odhadnout OST. Odhad zapsaný do DB bez
+    zastavení už jednou způsobil chybu (viz je_konec_pomeru níž)."""
     for vzor, typ, zakazana_smena in _TYP_VZORY:
         if vzor.search(popis):
             return typ, zakazana_smena
