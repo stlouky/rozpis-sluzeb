@@ -4,13 +4,14 @@ Průběžný zápis pro navázání po `/clear` nebo v nové relaci. Úkoly a je
 přesné zadání viz `zadani-faze3-web.md` — tenhle soubor jen zaznamenává,
 co už je hotovo, co zbývá a na co si dát pozor. Aktualizováno 17.7.2026.
 
-## ⏸ PAUZA — čeká se na rozhodnutí
+## Pauza zrušena (17.7.2026)
 
-Práce je od 17.7.2026 pozastavená. Čeká se na vyjádření kamarádky
+Práce byla od 17.7.2026 pozastavená kvůli vyjádření kamarádky
 (spoluautorka/konzultantka projektu, viz `NAVRH.md` "Otevřené otázky pro
-kamarádku"), jestli má vůbec smysl appku dál budovat. Dokud nepřijde
-odpověď, nezačínat Úkol 4 ani nic dalšího z vlastní iniciativy — jen na
-vyžádání.
+kamarádku"), jestli má vůbec smysl appku dál budovat. Uživatel se
+rozhodl na odpověď nečekat — další úpravy budou stejně jen kosmetické,
+nemá smysl kvůli tomu blokovat práci. Pokračuje se normálně, na
+vyžádání jako obvykle (další na řadě je Úkol 4).
 
 ## Hotovo (commitnuto na `main`)
 
