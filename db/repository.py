@@ -41,6 +41,10 @@ def pripojit_a_inicializovat(cesta: str | Path) -> sqlite3.Connection:
     """
     cesta_str = str(cesta)
     nova = cesta_str != ":memory:" and not Path(cesta_str).exists()
+    if nova:
+        # výchozí cesta je data/rozpis.db (viz db/cesta.py) - na čerstvém
+        # checkoutu adresář data/ ještě nemusí existovat
+        Path(cesta_str).parent.mkdir(parents=True, exist_ok=True)
     conn = pripojit(cesta)
     if nova:
         inicializovat_schema(conn)

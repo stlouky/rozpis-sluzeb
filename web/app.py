@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import secrets
 import sqlite3
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from db.cesta import vychozi_cesta_db
 from db.models import Uzivatel
 
 from .auth import (
@@ -30,14 +32,22 @@ from .auth import (
     vyzadovat_prihlaseni,
     vytvorit_session,
 )
-from .db import ziskat_pripojeni
+from .db import overit_databazi, ziskat_pripojeni
 from .mrizka import sestavit_mrizku
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_DB = ROOT.parent / "rozpis.db"
 
-app = FastAPI(title="Rozpis služeb")
-app.state.cesta_db = Path(os.environ.get("ROZPIS_DB", str(DEFAULT_DB)))
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Ověří DB existenci + schéma JEDNOU při startu, ať web nikdy tiše
+    # neběží proti prázdné/staré databázi (viz web/db.py:overit_databazi).
+    overit_databazi(app.state.cesta_db)
+    yield
+
+
+app = FastAPI(title="Rozpis služeb", lifespan=_lifespan)
+app.state.cesta_db = vychozi_cesta_db()
 # Bez explicitního tajného klíče (produkce, viz úkol 10 - deploy) se vygeneruje
 # nový při každém startu - restart tak odhlásí všechny (stejný kompromis jako
 # in-memory session store, viz web/auth.py).

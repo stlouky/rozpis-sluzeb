@@ -12,9 +12,8 @@ from solver.core import NelzeSestavitError, generate_schedule
 from . import repository as repo
 from .auth import hashovat_heslo
 from .bridge import DEFAULT_CONFIG_YAML, config_pro_mesic
+from .cesta import vychozi_cesta_db
 from .import_txt import najit_zamestnance, parsovat_radek_pozadavku, rozpoznat_typ
-
-DEFAULT_DB = Path(__file__).resolve().parent.parent / "rozpis.db"
 
 
 def _pripojit_a_inicializovat(cesta: Path):
@@ -196,7 +195,10 @@ def _cmd_generuj(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ruční správa DB rozpisu služeb")
-    parser.add_argument("--db", default=str(DEFAULT_DB), help="cesta k SQLite souboru")
+    parser.add_argument(
+        "--db", default=str(vychozi_cesta_db()),
+        help="cesta k SQLite souboru (výchozí: $ROZPIS_DB, jinak data/rozpis.db)",
+    )
     sub = parser.add_subparsers(dest="prikaz", required=True)
 
     p = sub.add_parser("pridat-zamestnance", help="přidat nového zaměstnance")
