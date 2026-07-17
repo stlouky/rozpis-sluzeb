@@ -13,7 +13,7 @@ from . import repository as repo
 from .auth import hashovat_heslo
 from .bridge import DEFAULT_CONFIG_YAML, config_pro_mesic, souhrn_vstupu
 from .cesta import vychozi_cesta_db
-from .import_txt import najit_zamestnance, parsovat_radek_pozadavku, rozpoznat_typ
+from .import_txt import je_konec_pomeru, najit_zamestnance, parsovat_radek_pozadavku, rozpoznat_typ
 
 
 def _pripojit_a_inicializovat(cesta: Path):
@@ -111,6 +111,7 @@ def _cmd_import_txt(args: argparse.Namespace) -> None:
     zamestnanci = repo.vsichni_zamestnanci(conn)
 
     pridano_nedostupnosti = 0
+    pocet_deaktivaci = 0
     chyby: list[str] = []
     with open(args.pozadavky_soubor, encoding="utf-8-sig") as f:
         for cislo_radku, syrovy_radek in enumerate(f, start=1):
@@ -126,6 +127,19 @@ def _cmd_import_txt(args: argparse.Namespace) -> None:
             zamestnanec = najit_zamestnance(zamestnanci, polozka.jmeno)
             if zamestnanec is None:
                 chyby.append(f"řádek {cislo_radku}: neznámý zaměstnanec „{polozka.jmeno}“")
+                continue
+
+            if je_konec_pomeru(polozka.popis):
+                # NENÍ nedostupnost - konec pracovního poměru jde do
+                # zamestnanec.aktivni_do (poslední den = polozka.do,
+                # včetně), ne jako jednodenní/vícedenní OST záznam, jinak
+                # by zaměstnanec zůstal "aktivní" i po svém posledním dni.
+                repo.deaktivovat_zamestnance(conn, zamestnanec.id, polozka.do)
+                print(
+                    f"Řádek {cislo_radku}: {polozka.jmeno} - konec pracovního poměru "
+                    f"k {polozka.do.isoformat()} (nastaveno aktivni_do, NE nedostupnost)."
+                )
+                pocet_deaktivaci += 1
                 continue
 
             vysledek = rozpoznat_typ(polozka.popis)
@@ -158,7 +172,8 @@ def _cmd_import_txt(args: argparse.Namespace) -> None:
     print(
         f"\nSouhrn importu: {pridano_zamestnancu} zaměstnanců přidáno, "
         f"{preskoceno_zamestnancu} přeskočeno, "
-        f"{pridano_nedostupnosti} nedostupností přidáno."
+        f"{pridano_nedostupnosti} nedostupností přidáno, "
+        f"{pocet_deaktivaci} konec(ů) poměru zapsáno."
     )
 
     if chyby:

@@ -17,11 +17,12 @@ from db.bridge import dny_v_mesici, schedule_z_db
 from solver.schedule import CZ_DNY
 
 
-# Zkratky pro buňku mřížky - stejné jako v legendě (NEM/OST/POZ). NEM a OST
-# jsou už na 3 znacích, jen POZADAVEK je potřeba zkrátit; neznámé/budoucí
-# typy se zkrátí obecně na první 3 znaky (viz Bunka.text), ať nový typ
+# Zkratky pro buňku mřížky - malými písmeny (nem/ost/poz), ať jsou v
+# buňce čitelné, ale opticky nekřičí přes D/N směny, které zůstávají
+# velkými (zavedená konvence, viz CLAUDE.md). Neznámé/budoucí typy se
+# zkrátí obecně na první 3 znaky malými (viz Bunka.text), ať nový typ
 # nedostupnosti mřížku nerozbije, i kdyby se sem zapomnělo doplnit zkratku.
-_ZKRATKA_NEDOSTUPNOSTI = {"POZADAVEK": "POZ"}
+_ZKRATKA_NEDOSTUPNOSTI = {"NEM": "nem", "OST": "ost", "POZADAVEK": "poz"}
 
 # Plný název pro title/tooltip buňky (viz web/sablony/mrizka.html) - i
 # nahled ho smí vidět, jde jen o rozepsání zkratky/barvy, ne o poznámku.
@@ -44,7 +45,7 @@ class Bunka:
         if self.smena:
             return self.smena
         if self.nedostupnost and self.nedostupnost != "DOV":
-            return _ZKRATKA_NEDOSTUPNOSTI.get(self.nedostupnost, self.nedostupnost[:3])
+            return _ZKRATKA_NEDOSTUPNOSTI.get(self.nedostupnost, self.nedostupnost[:3].lower())
         return ""
 
     @property

@@ -43,6 +43,19 @@ def rozpoznat_typ(popis: str) -> tuple[str, str | None] | None:
     return None
 
 
+# "16.8, Michnová, končí (ve zkušební době)" NENÍ nedostupnost - je to
+# konec pracovního poměru (zamestnanec.aktivni_do), ne den volna. Bez týhle
+# výjimky by to rozpoznat_typ spadlo do OST fallbacku jako jednodenní
+# nedostupnost a zaměstnanec by zůstal "aktivní" (a plánovatelný) i po
+# svém posledním dni - viz db/cli.py._cmd_import_txt.
+_KONEC_POMERU_VZOR = re.compile(r"kon[čc][ií]|ukonč|odchod|odch[aá]z", re.IGNORECASE)
+
+
+def je_konec_pomeru(popis: str) -> bool:
+    """True, když popis signalizuje konec pracovního poměru, ne nedostupnost."""
+    return bool(_KONEC_POMERU_VZOR.search(popis))
+
+
 def parsovat_datum(cast: str, rok: int) -> date:
     shoda = _DATUM_RE.match(cast)
     if not shoda:

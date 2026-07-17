@@ -355,3 +355,30 @@ def test_import_txt_je_idempotentni(tmp_path, capsys):
     conn = repo.pripojit(cesta_db)
     assert len(repo.vsichni_zamestnanci(conn)) == 3
     assert len(repo.nedostupnosti_v_obdobi(conn, date(2026, 1, 1), date(2026, 12, 31))) == 5
+
+
+def test_import_txt_konec_pomeru_nastavi_aktivni_do_ne_nedostupnost(tmp_path, capsys):
+    # nález: "16.8, Michnová, končí (ve zkušební době)" není nedostupnost,
+    # je to konec pracovního poměru - musí jít do aktivni_do, ne vytvořit
+    # jednodenní OST záznam (po kterém by zůstala "aktivní" i po 16.8.)
+    zamestnanci_soubor = tmp_path / "zamestnanci.txt"
+    zamestnanci_soubor.write_text("Testovská Anna\n", encoding="utf-8")
+    pozadavky_soubor = tmp_path / "pozadavky.txt"
+    pozadavky_soubor.write_text("16.8, Testovská, končí (ve zkušební době)\n", encoding="utf-8")
+
+    cesta_db = tmp_path / "test.db"
+    main([
+        "--db", str(cesta_db), "import-txt",
+        str(zamestnanci_soubor), str(pozadavky_soubor), "--rok", "2026",
+    ])
+    vystup = capsys.readouterr().out
+
+    assert "konec pracovního poměru" in vystup
+    assert "k 2026-08-16" in vystup
+    assert "1 konec(ů) poměru zapsáno" in vystup
+    assert "0 nedostupností přidáno" in vystup
+
+    conn = repo.pripojit(cesta_db)
+    zamestnanec = repo.zamestnanec_podle_jmena(conn, "Testovská Anna")
+    assert zamestnanec.aktivni_do == date(2026, 8, 16)
+    assert repo.nedostupnosti_v_obdobi(conn, date(2026, 8, 1), date(2026, 8, 31)) == []

@@ -12,6 +12,7 @@ import pytest
 
 from db.import_txt import (
     RadekPozadavku,
+    je_konec_pomeru,
     najit_zamestnance,
     parsovat_datum,
     parsovat_radek_pozadavku,
@@ -64,6 +65,26 @@ def test_rozpoznat_typ_zname_popisy(popis, ocekavany_typ, ocekavana_zakazana_sme
 
 def test_rozpoznat_typ_neznamy_popis_vraci_none():
     assert rozpoznat_typ("nějaký exotický důvod") is None
+
+
+@pytest.mark.parametrize(
+    "popis",
+    [
+        "končí (ve zkušební době)",
+        "končí",
+        "skončí ve zkušební době",
+        "ukončení pracovního poměru",
+        "odchod",
+        "odchází k tomuto dni",
+    ],
+)
+def test_je_konec_pomeru_rozpozna_konec_pracovniho_pomeru(popis):
+    assert je_konec_pomeru(popis) is True
+
+
+@pytest.mark.parametrize("popis", ["dovolená", "volno", "lékař", "ne noční směnu"])
+def test_je_konec_pomeru_nereaguje_na_bezne_nedostupnosti(popis):
+    assert je_konec_pomeru(popis) is False
 
 
 def test_parsovat_radek_pozadavku_bez_mezery_za_carkou():

@@ -93,12 +93,13 @@ def test_sestavit_mrizku_dov_a_jina_nedostupnost_se_lisi(conn):
 
     assert bunka_nem.nedostupnost == "NEM"
     assert bunka_nem.trida == "nedostupnost-jina"
-    assert bunka_nem.text == "NEM"  # ostatní nedostupnosti = text typu
+    assert bunka_nem.text == "nem"  # ostatní nedostupnosti = text typu, malými písmeny
 
 
 def test_sestavit_mrizku_pozadavek_se_zkrati_na_poz(conn):
     # POZADAVEK je jediný typ delší než 3 znaky - v buňce by přetékal a
     # překrýval sousední (viz nález), musí se zkrátit stejně jako v legendě
+    # (a malými písmeny, ať v buňce opticky nekřičí přes D/N)
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     repo.pridat_nedostupnost(conn, id_, date(2026, 8, 5), date(2026, 8, 5), "POZADAVEK")
 
@@ -106,7 +107,7 @@ def test_sestavit_mrizku_pozadavek_se_zkrati_na_poz(conn):
     bunka = mrizka.radky[0].bunky[4]  # 5.8.
 
     assert bunka.nedostupnost == "POZADAVEK"
-    assert bunka.text == "POZ"
+    assert bunka.text == "poz"
     assert bunka.nazev_nedostupnosti == "Požadavek"
 
 
@@ -216,10 +217,11 @@ def test_admin_ma_navigaci_na_jiny_mesic(klient):
 
 
 def test_rozpis_zkracuje_pozadavek_na_poz(klient):
-    # nález: POZADAVEK se dřív vypisoval celý a přetékal mimo buňku
+    # nález: POZADAVEK se dřív vypisoval celý a přetékal mimo buňku;
+    # zkratka je navíc malými písmeny (poz), ať v buňce nekřičí přes D/N
     _prihlasit(klient, "admin", "tajneheslo")
     odpoved = klient.get("/rozpis?mesic=2026-08")
-    assert ">POZ<" in odpoved.text
+    assert ">poz<" in odpoved.text
     assert "POZADAVEK" not in odpoved.text
     assert 'title="Požadavek"' in odpoved.text
 
