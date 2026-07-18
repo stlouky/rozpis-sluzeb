@@ -53,9 +53,17 @@ def rozpoznat_typ(popis: str) -> tuple[str, str | None] | None:
 # svém posledním dni - viz db/cli.py._cmd_import_txt.
 _KONEC_POMERU_VZOR = re.compile(r"kon[čc][ií]|ukonč|odchod|odch[aá]z", re.IGNORECASE)
 
+# "brzký odchod, lékař" NENÍ konec poměru - je to jen dřívější odchod ZE
+# SMĚNY toho dne (rozpoznat_typ to správně chytí přes "lékař" -> OST).
+# _KONEC_POMERU_VZOR by na "odchod" spadl a zaměstnance omylem natrvalo
+# deaktivoval (nález auditu appky) - tahle výjimka má přednost.
+_BRZKY_ODCHOD_VZOR = re.compile(r"brzk\w*\s+odch", re.IGNORECASE)
+
 
 def je_konec_pomeru(popis: str) -> bool:
     """True, když popis signalizuje konec pracovního poměru, ne nedostupnost."""
+    if _BRZKY_ODCHOD_VZOR.search(popis):
+        return False
     return bool(_KONEC_POMERU_VZOR.search(popis))
 
 

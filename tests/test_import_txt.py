@@ -91,6 +91,15 @@ def test_je_konec_pomeru_nereaguje_na_bezne_nedostupnosti(popis):
     assert je_konec_pomeru(popis) is False
 
 
+@pytest.mark.parametrize("popis", ["brzký odchod, lékař", "brzká odchází domů, nevolno"])
+def test_je_konec_pomeru_nereaguje_na_brzky_odchod_ze_smeny(popis):
+    # nález auditu appky: "odchod"/"odchází" v _KONEC_POMERU_VZOR chytalo i
+    # dřívější odchod ZE SMĚNY toho dne (ne konec poměru) - rozpoznat_typ by
+    # to správně vzal jako OST ("lékař"), ale je_konec_pomeru mělo přednost
+    # v db/cli.py a omylem by zaměstnance natrvalo deaktivovalo.
+    assert je_konec_pomeru(popis) is False
+
+
 def test_parsovat_radek_pozadavku_bez_mezery_za_carkou():
     # reálný soubor: "3.8, Adamcová Bezemková,volno" - bez mezery po druhé čárce
     radek = parsovat_radek_pozadavku(1, "3.8, Testovská,volno", 2026)

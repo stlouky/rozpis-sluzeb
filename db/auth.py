@@ -15,4 +15,11 @@ def hashovat_heslo(heslo: str) -> str:
 
 
 def overit_heslo(heslo: str, heslo_hash: str) -> bool:
-    return bcrypt.checkpw(heslo.encode(), heslo_hash.encode())
+    """False i pro heslo delší než 72 bajtů (bcrypt limit) - bcrypt 4.1+ na
+    to místo tichého oříznutí vyhazuje ValueError. Bez try/except by
+    nepřihlášený uživatel dlouhým heslem na /login shodil endpoint na
+    HTTP 500 místo "špatné heslo" (nález auditu appky)."""
+    try:
+        return bcrypt.checkpw(heslo.encode(), heslo_hash.encode())
+    except ValueError:
+        return False

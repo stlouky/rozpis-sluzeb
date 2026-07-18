@@ -128,6 +128,23 @@ def test_dve_nocni_v_rade_bez_treti_neni_porusena():
     assert validovat_rozpis(schedule, config) == []
 
 
+def test_prace_den_po_jednom_dni_volna_po_2_nocnich_je_porusena():
+    config = _config()
+    schedule = _schedule({("Alena", 1): "N", ("Alena", 2): "N", ("Alena", 4): "D"})
+
+    poruseni = validovat_rozpis(schedule, config)
+    assert any(
+        p.zamestnanec == "Alena" and p.den == 4 and "volna po 2 nočních" in p.popis
+        for p in poruseni
+    )
+
+
+def test_2_dny_volna_po_2_nocnich_neni_porusena():
+    config = _config()
+    schedule = _schedule({("Alena", 1): "N", ("Alena", 2): "N", ("Alena", 5): "D"})
+    assert validovat_rozpis(schedule, config) == []
+
+
 # --- zakázaná dvojice, nedostupnost, zakázaný typ směny ---
 
 def test_zakazana_dvojice_spolu_je_porusena():

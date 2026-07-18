@@ -175,6 +175,31 @@ def test_opravit_jmeno_zamestnance(conn):
     assert opravena.jmeno == "Bezemková Andrea"
 
 
+def test_pridat_zamestnance_duplicitni_jmeno_vyhodi_value_error(conn):
+    # zamestnanec.jmeno nemá UNIQUE - bez týhle kontroly by dva zaměstnanci
+    # se stejným jménem prošli tiše a ulozit_rozpis (mapování jméno -> id)
+    # by pak jednoho z nich přepsal druhým, tedy tiše přiřadil směny
+    # špatnému člověku (nález auditu appky).
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    with pytest.raises(ValueError, match="už existuje"):
+        repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+
+
+def test_opravit_jmeno_zamestnance_na_stejne_jmeno_je_no_op(conn):
+    # oprava beze změny (formulář vyplněný stávajícím jménem) nesmí spadnout
+    # na "jméno už existuje" - existující je přece ona sama.
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.opravit_jmeno_zamestnance(conn, id_, "Alena")
+    assert repo.zamestnanec_podle_id(conn, id_).jmeno == "Alena"
+
+
+def test_opravit_jmeno_zamestnance_na_cizi_jmeno_vyhodi_value_error(conn):
+    repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    id_bedrich = repo.pridat_zamestnance(conn, "Bedřich", date(2020, 1, 1))
+    with pytest.raises(ValueError, match="už existuje"):
+        repo.opravit_jmeno_zamestnance(conn, id_bedrich, "Alena")
+
+
 def test_prekryv_nedostupnosti_stejneho_zamestnance(conn):
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     # dovolená 3.-9. srpna, uprostřed toho nahlášená nemoc 5.-7. (překryv)
@@ -216,6 +241,59 @@ def test_max_smen_mesic_se_projevi_v_configu_pro_mesic(conn):
 
     config = config_pro_mesic(conn, 2026, 8)
     assert config.max_smen_mesic_override == {"Alena": 5}
+
+
+def test_nocni_posledni_den_predchoziho_mesice_zakaze_denni_prvni_den(conn):
+    # Nález: noční směna 31.7. (poslední den července) musí zakázat denní
+    # 1.8. (N -> D zakázáno platí i přes hranici měsíce, CLAUDE.md) - Config
+    # pro srpen jinak o červencové směně nic neví (dny 1..pocet_dni jsou jen
+    # uvnitř jednoho měsíce).
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    repo.nastavit_smenu(conn, id_, date(2026, 7, 31), "N")
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert config.zakazane_smeny["Alena"][1] == ("D",)
+
+
+def test_bez_nocni_posledni_den_predchoziho_mesice_nic_nezakazuje(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    repo.nastavit_smenu(conn, id_, date(2026, 7, 31), "D")
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert config.zakazane_smeny.get("Alena", {}).get(1, ()) == ()
+
+
+def test_2_nocni_v_rade_na_konci_predchoziho_mesice_zakazou_2_dny_v_novem(conn):
+    # Nález (na vyžádání): jen kontrola posledního dne předchozího měsíce
+    # (viz test výš) neřeší situaci, kdy tam byly 2 noční V ŘADĚ (30. a
+    # 31.7.) - pak je potřeba 2 CELÉ dny volna (1. i 2.8.), ne jen zákaz
+    # denní 1. den (max 2 noční v řadě, pak 2 dny volna - CLAUDE.md).
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    repo.nastavit_smenu(conn, id_, date(2026, 7, 30), "N")
+    repo.nastavit_smenu(conn, id_, date(2026, 7, 31), "N")
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert {1, 2} <= set(config.nedostupnosti["Alena"])
+
+
+def test_1_nocni_na_konci_predchoziho_mesice_nevyzaduje_2_dny_volna(conn):
+    # Jen jedna noční (ne dvě v řadě) na konci předchozího měsíce vyžaduje
+    # jen zákaz denní 1. den (viz test výš), ne celé 2 dny volna navíc.
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    for jmeno in ZBYVAJICI_11:
+        repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1))
+    repo.nastavit_smenu(conn, id_, date(2026, 7, 30), "D")
+    repo.nastavit_smenu(conn, id_, date(2026, 7, 31), "N")
+
+    config = config_pro_mesic(conn, 2026, 8)
+    assert 1 not in config.nedostupnosti.get("Alena", set())
+    assert 2 not in config.nedostupnosti.get("Alena", set())
 
 
 def test_nastavit_max_smen_mesic_zmeni_existujiciho_zamestnance(conn):
@@ -890,6 +968,23 @@ def test_pridat_nedostupnost_obraceny_rozsah_vyhodi_value_error(conn):
     with pytest.raises(ValueError, match="od.*do"):
         repo.pridat_nedostupnost(conn, id_, date(2026, 8, 9), date(2026, 8, 3), "DOV")
     assert repo.nedostupnosti_v_obdobi(conn, date(2026, 8, 1), date(2026, 8, 31)) == []
+
+
+def test_pridat_nedostupnost_neplatny_typ_vyhodi_value_error(conn):
+    """Nález auditu appky: bez týhle kontroly by neplatný typ (upravený
+    formulář v prohlížeči, přímý POST) spadl na syrový
+    sqlite3.IntegrityError (CHECK na nedostupnost.typ), ne na čitelnou
+    ValueError - web/app.py chytá jen ValueError."""
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    with pytest.raises(ValueError, match="Neplatný typ"):
+        repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 3), "NEPLATNY")
+
+
+def test_upravit_nedostupnost_neplatny_typ_vyhodi_value_error(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    ned_id = repo.pridat_nedostupnost(conn, id_, date(2026, 8, 3), date(2026, 8, 3), "DOV")
+    with pytest.raises(ValueError, match="Neplatný typ"):
+        repo.upravit_nedostupnost(conn, ned_id, date(2026, 8, 3), date(2026, 8, 3), "NEPLATNY")
 
 
 def test_pridat_nedostupnost_stejny_den_projde(conn):

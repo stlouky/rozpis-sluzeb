@@ -127,6 +127,13 @@ def pridat_zamestnance(
     stitky: list[str] | None = None,
     max_smen_mesic: int | None = None,
 ) -> int:
+    """zamestnanec.jmeno nemá v schématu UNIQUE (na rozdíl od uzivatel.jmeno),
+    proto se duplicita kontroluje tady - jinak by dva zaměstnanci se stejným
+    jménem prošli tiše a ulozit_rozpis (mapování jméno -> id ze Schedule)
+    by pak jednoho z nich při ukládání výsledku solveru přepsal druhým,
+    tedy tiše přiřadil směny špatnému člověku (nález auditu appky)."""
+    if zamestnanec_podle_jmena(conn, jmeno) is not None:
+        raise ValueError(f"Zaměstnanec „{jmeno}“ už existuje.")
     kurzor = conn.execute(
         "INSERT INTO zamestnanec (jmeno, aktivni_od, stitky, max_smen_mesic) VALUES (?, ?, ?, ?)",
         (jmeno, aktivni_od.isoformat(), ",".join(stitky or []), max_smen_mesic),
@@ -157,7 +164,12 @@ def deaktivovat_zamestnance(conn: sqlite3.Connection, zamestnanec_id: int, aktiv
 
 def opravit_jmeno_zamestnance(conn: sqlite3.Connection, zamestnanec_id: int, jmeno: str) -> None:
     """Opraví jméno (typo/nesprávný zápis) - na rozdíl od deaktivace nejde
-    o fluktuaci, jen o opravu chybného záznamu."""
+    o fluktuaci, jen o opravu chybného záznamu. Kontrola duplicity stejná
+    jako u pridat_zamestnance (viz tam) - vynechá sebe sama, ať jde uložit
+    beze změny (formulář vyplněný stávajícím jménem)."""
+    existujici = zamestnanec_podle_jmena(conn, jmeno)
+    if existujici is not None and existujici.id != zamestnanec_id:
+        raise ValueError(f"Zaměstnanec „{jmeno}“ už existuje.")
     conn.execute(
         "UPDATE zamestnanec SET jmeno = ? WHERE id = ?",
         (jmeno, zamestnanec_id),
@@ -267,6 +279,14 @@ def aktivni_zamestnanci_v_obdobi(conn: sqlite3.Connection, od: date, do: date) -
 
 # --- nedostupnosti ---
 
+# Musí sedět s CHECK na nedostupnost.typ (db/schema.sql) - kontrola tady
+# existuje NAVÍC, protože bez ní by neplatná hodnota (upravený formulář v
+# prohlížeči, přímý POST) spadla na syrový sqlite3.IntegrityError misto
+# čitelné ValueError - routy v web/app.py chytají jen ValueError, takže by
+# to skončilo HTTP 500 (nález auditu appky).
+TYPY_NEDOSTUPNOSTI = ("DOV", "NEM", "OST", "SVZ", "POZADAVEK")
+
+
 def _validovat_rozsah(od: date, do: date) -> None:
     """Obrácený rozsah (od > do) by se tiše uložil jako nedostupnost,
     která ve skutečnosti nic neblokuje - dny_v_mesici() na prázdném
@@ -274,6 +294,13 @@ def _validovat_rozsah(od: date, do: date) -> None:
     přestože záznam v DB vypadá, že je pokrytý (viz audit)."""
     if od > do:
         raise ValueError(f"Datum „od“ ({od.isoformat()}) musí být <= „do“ ({do.isoformat()}).")
+
+
+def _validovat_typ(typ: str) -> None:
+    if typ not in TYPY_NEDOSTUPNOSTI:
+        raise ValueError(
+            f"Neplatný typ nedostupnosti „{typ}“, očekávám jeden z {TYPY_NEDOSTUPNOSTI}."
+        )
 
 
 def pridat_nedostupnost(
@@ -287,6 +314,7 @@ def pridat_nedostupnost(
     stav: str = "schvaleno",
 ) -> int:
     _validovat_rozsah(od, do)
+    _validovat_typ(typ)
     kurzor = conn.execute(
         """
         INSERT INTO nedostupnost (zamestnanec_id, od, do, typ, poznamka, zakazana_smena, stav)
@@ -365,6 +393,7 @@ def upravit_nedostupnost(
     "doplnit editaci" z úkolu 5, ať admin nemusí mazat a zakládat znovu
     kvůli překlepu v datu/popisu)."""
     _validovat_rozsah(od, do)
+    _validovat_typ(typ)
     conn.execute(
         """
         UPDATE nedostupnost

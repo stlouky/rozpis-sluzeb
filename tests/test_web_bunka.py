@@ -152,6 +152,24 @@ def test_zamcena_bunka_neni_v_mrizce_editovatelna(klient):
     assert f"/rozpis/bunka/{klient.id_alena}/2026-08-25" not in odpoved.text
 
 
+def test_upravit_bunku_vicedenni_dov_nezapise_castecnou_smenu(klient):
+    """Nález auditu appky: den v rozsahu vícedenní DOV se dřív nejdřív
+    zapsal jako směna D (nastavit_smenu, commitne se hned) a AŽ POTOM
+    spadl na ValueError kvůli vícedenní nedostupnosti
+    (nastavit_nedostupnost_jednoho_dne) - směna D zůstala v DB uložená
+    vedle dovolené, aniž by se to projevilo jako chyba. Oprava ověří obě
+    podmínky PŘED jakýmkoli zápisem."""
+    conn = _conn(klient)
+    repo.pridat_nedostupnost(conn, klient.id_alena, date(2026, 8, 20), date(2026, 8, 27), "DOV")
+
+    odpoved = _upravit(klient, "D", datum="2026-08-25")
+    assert odpoved.status_code == 200
+
+    assert repo.smena_pro_den(conn, klient.id_alena, date(2026, 8, 25)) is None
+    ned = repo.nedostupnost_pro_den(conn, klient.id_alena, date(2026, 8, 25))
+    assert ned is not None and ned.typ == "DOV" and ned.od == date(2026, 8, 20)
+
+
 def test_nahled_nevidi_klikaci_formular_v_mrizce(klient_nahled):
     odpoved = klient_nahled.get("/rozpis")
     assert "/rozpis/bunka/" not in odpoved.text

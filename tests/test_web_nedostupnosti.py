@@ -154,6 +154,23 @@ def test_vytvoreni_s_obracenym_rozsahem_vraci_chybu_a_neuklada(klient):
     assert repo.vsechny_nedostupnosti(_conn(klient)) == []
 
 
+def test_vytvoreni_s_neplatnym_typem_vraci_chybu_a_neuklada(klient):
+    """Nález auditu appky: neplatný typ (upravený formulář v prohlížeči,
+    přímý POST) by dřív spadl na syrový sqlite3.IntegrityError (CHECK na
+    nedostupnost.typ) → HTTP 500 - route chytala jen ValueError."""
+    odpoved = klient.post(
+        "/admin/nedostupnosti/nova",
+        data={
+            "zamestnanec_id": klient.id_alena,
+            "od": "2026-08-03",
+            "do": "2026-08-03",
+            "typ": "NEPLATNY",
+        },
+    )
+    assert odpoved.status_code == 400
+    assert repo.vsechny_nedostupnosti(_conn(klient)) == []
+
+
 def test_varovani_jednotne_cislo_ma_spravny_tvar(klient):
     """Audit: skloňování "1 další nedostupnost" (ne "...nedostupnosti")."""
     conn = _conn(klient)

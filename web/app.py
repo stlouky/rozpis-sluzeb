@@ -422,7 +422,20 @@ def admin_zamestnanec_novy_odeslani(
 
     stitky = [STITEK_FYZICKA_VYPOMOC] if fyzicka_vypomoc else []
     strop = int(max_smen_mesic) if max_smen_mesic.strip() else None
-    novy_id = repo.pridat_zamestnance(conn, jmeno.strip(), aktivni_od, stitky, strop)
+    try:
+        novy_id = repo.pridat_zamestnance(conn, jmeno.strip(), aktivni_od, stitky, strop)
+    except ValueError as e:
+        return sablony.TemplateResponse(
+            request,
+            "admin_zamestnanec_novy.html",
+            {
+                "uzivatel": uzivatel,
+                "chyba": str(e),
+                "dnes": date.today().isoformat(),
+                "mozni_partneri": repo.aktivni_zamestnanci(conn, date.today()),
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     # Formulář nabízí jen aktivní zaměstnance jako partnery (viz GET výš),
     # ale mezi zobrazením a odesláním formuláře mohl partner zmizet
     # (smazání) - tiché přeskočení neplatného id, ať se to nezhroutí na
@@ -464,14 +477,28 @@ def admin_zamestnanec_upravit_formular(
 
 @app.post("/admin/zamestnanci/{zamestnanec_id}/upravit-jmeno")
 def admin_zamestnanec_upravit_jmeno(
+    request: Request,
     zamestnanec_id: int,
     jmeno: str = Form(...),
     uzivatel: Uzivatel = Depends(vyzadovat_admina),
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
-    _zamestnanec_nebo_404(conn, zamestnanec_id)
+    zamestnanec = _zamestnanec_nebo_404(conn, zamestnanec_id)
     if jmeno.strip():
-        repo.opravit_jmeno_zamestnance(conn, zamestnanec_id, jmeno.strip())
+        try:
+            repo.opravit_jmeno_zamestnance(conn, zamestnanec_id, jmeno.strip())
+        except ValueError as e:
+            return sablony.TemplateResponse(
+                request,
+                "admin_zamestnanec_upravit.html",
+                {
+                    "uzivatel": uzivatel,
+                    "zamestnanec": zamestnanec,
+                    "ma_smenu": repo.ma_nejakou_smenu(conn, zamestnanec_id),
+                    "chyba": str(e),
+                },
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
     return RedirectResponse(
         url=f"/admin/zamestnanci/{zamestnanec_id}/upravit", status_code=status.HTTP_303_SEE_OTHER
     )
@@ -968,14 +995,33 @@ def _nastavit_hodnotu_bunky(
     """Nastaví ruční hodnotu buňky - směna a jednodenní nedostupnost se
     vzájemně vylučují, takže se vždy jedna nastaví a druhá smaže. Vrátí
     chybovou hlášku (str) při neúspěchu (zamčená směna/vícedenní
-    nedostupnost), jinak None."""
+    nedostupnost), jinak None.
+
+    Obě podmínky se ověří PŘED jakýmkoli zápisem - repo.nastavit_smenu i
+    repo.nastavit_nedostupnost_jednoho_dne commitují každá samostatně, takže
+    volání obou za sebou v try/except by při chybě DRUHÉHO volání nechalo v
+    DB nekonzistentní částečný zápis z prvního (nález auditu appky: klik na
+    "D" u dne, který je součástí vícedenní DOV, dřív nejdřív zapsal a
+    commitnul směnu D a AŽ POTOM spadl na ValueError kvůli nedostupnosti -
+    směna D zůstala v DB uložená vedle dovolené, aniž by se to projevilo
+    jako chyba)."""
     typ_smeny = hodnota if hodnota in ("D", "N") else None
     typ_nedostupnosti = hodnota if hodnota in TYPY_NEDOSTUPNOSTI_V_CYKLU else None
-    try:
-        repo.nastavit_smenu(conn, zamestnanec_id, datum, typ_smeny)
-        repo.nastavit_nedostupnost_jednoho_dne(conn, zamestnanec_id, datum, typ_nedostupnosti)
-    except ValueError as e:
-        return str(e)
+
+    existujici_smena = repo.smena_pro_den(conn, zamestnanec_id, datum)
+    if existujici_smena is not None and existujici_smena.locked:
+        return f"Směna {datum.isoformat()} je zamčená, nejde ji ručně upravit - nejdřív odemkni."
+
+    existujici_nedostupnost = repo.nedostupnost_pro_den(conn, zamestnanec_id, datum)
+    if existujici_nedostupnost is not None and existujici_nedostupnost.od != existujici_nedostupnost.do:
+        return (
+            f"Nedostupnost {existujici_nedostupnost.od.isoformat()}"
+            f"–{existujici_nedostupnost.do.isoformat()} je vícedenní, nejde upravit "
+            f"po jednom dni - uprav ji na /admin/nedostupnosti."
+        )
+
+    repo.nastavit_smenu(conn, zamestnanec_id, datum, typ_smeny)
+    repo.nastavit_nedostupnost_jednoho_dne(conn, zamestnanec_id, datum, typ_nedostupnosti)
     return None
 
 

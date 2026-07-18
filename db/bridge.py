@@ -83,6 +83,34 @@ def config_pro_mesic(
             for den in range(1, posledni_den.day + 1):
                 dny_omezeni[den] = dny_omezeni.get(den, ()) + (z.zakaz_smeny,)
 
+    # N -> D zakázáno (CLAUDE.md) platí i přes hranici měsíce, ale solver
+    # dny počítá jen 1..pocet_dni uvnitř JEDNOHO configu - bez tohohle by
+    # noční směna z posledního dne PŘEDCHOZÍHO měsíce nebránila denní hned
+    # 1. den tohohle měsíce (nález: Šestáková noční 31.7., navrhovaná
+    # denní 1.8.). Kontroluje se přímo uložená směna (repo.smena_pro_den),
+    # ne Config - carryover mezi měsíci žádný Config nezná.
+    posledni_den_predchoziho_mesice = prvni_den - timedelta(days=1)
+    predposledni_den_predchoziho_mesice = prvni_den - timedelta(days=2)
+    for z in aktivni:
+        predchozi_smena = repo.smena_pro_den(conn, z.id, posledni_den_predchoziho_mesice)
+        if predchozi_smena is not None and predchozi_smena.typ == "N":
+            dny_omezeni = zakazane_smeny.setdefault(z.jmeno, {})
+            dny_omezeni[1] = dny_omezeni.get(1, ()) + ("D",)
+
+            # 2 noční v řadě na konci předchozího měsíce (poslední den I
+            # den před ním) -> povinné 2 dny volna hned na začátku tohohle
+            # měsíce (max 2 noční v řadě, pak 2 dny volna - CLAUDE.md).
+            # Nedostupnost (celý den), ne jen zakazane_smeny - tohle
+            # zakazuje D i N, ne jen D.
+            predposledni_smena = repo.smena_pro_den(
+                conn, z.id, predposledni_den_predchoziho_mesice
+            )
+            if predposledni_smena is not None and predposledni_smena.typ == "N":
+                nedostupnosti.setdefault(z.jmeno, set()).update({1, 2})
+                duvody = duvody_nedostupnosti.setdefault(z.jmeno, {})
+                duvody[1] = duvody.get(1, "POVINNE_VOLNO_PO_2_NOCNICH")
+                duvody[2] = duvody.get(2, "POVINNE_VOLNO_PO_2_NOCNICH")
+
     # Nástup/odchod uprostřed měsíce: aktivni_zamestnanci_v_obdobi vrátí
     # zaměstnance, jehož aktivní interval se s měsícem JEN překrývá (viz
     # repository.py) - bez tohohle by zůstal solveru "dostupný" i po dnech,

@@ -74,6 +74,19 @@ def validovat_rozpis(schedule: Schedule, config: Config) -> list[Poruseni]:
             if den > 1 and schedule.smena_zamestnance(jmeno, den - 1) == "N" and smena == "D":
                 poruseni.append(Poruseni(jmeno, den, "denní směna hned po noční"))
 
+            # po 2 nočních v řadě povinně 2 dny volna (CLAUDE.md) - core.py
+            # tohle při generování vynucuje jako tvrdé pravidlo (dve_nocni),
+            # ale validovat_rozpis to samo nekontrolovalo (nález auditu
+            # appky): ruční úprava buňky mohla uložit N,N,volno,D bez
+            # jakéhokoli hlášeného porušení.
+            if smena == "N" and den > 1 and schedule.smena_zamestnance(jmeno, den - 1) == "N":
+                for offset in (1, 2):
+                    den_po = den + offset
+                    if den_po <= schedule.pocet_dni and schedule.smena_zamestnance(jmeno, den_po) is not None:
+                        poruseni.append(
+                            Poruseni(jmeno, den_po, "chybí den volna po 2 nočních v řadě")
+                        )
+
             # nedostupnost (celý den, nebo jen tenhle typ směny)
             if den in nedostupny:
                 poruseni.append(Poruseni(jmeno, den, "směna v den nahlášené nedostupnosti"))
