@@ -15,6 +15,13 @@ from .bridge import DEFAULT_CONFIG_YAML, config_pro_mesic, souhrn_vstupu
 from .cesta import vychozi_cesta_db
 from .import_txt import je_konec_pomeru, najit_zamestnance, parsovat_radek_pozadavku, rozpoznat_typ
 
+# Časový rozpočet solveru NEZÁVISLE na --profil (na přání - "obsazovací"
+# profil (normalni/krizovy/optimalizovany) mění PRAVIDLA, tohle mění jen
+# kolik času solver dostane na hledání). Víc času nikdy nezhorší výsledek
+# (CP-SAT s delším limitem prohledá víc, ne míň), jen bude čekání delší -
+# strop u "dukladne" je pořád konečný, ne neomezený.
+UROVNE_HLEDANI = {"rychle": 15.0, "standardne": 30.0, "dukladne": 90.0}
+
 
 def _pripojit_a_inicializovat(cesta: Path):
     return repo.pripojit_a_inicializovat(cesta)
@@ -35,9 +42,13 @@ def _precist_heslo(zadane: str | None) -> str:
 def _cmd_pridat_zamestnance(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
     stitky = args.stitky.split(",") if args.stitky else []
-    id_ = repo.pridat_zamestnance(
-        conn, args.jmeno, date.fromisoformat(args.aktivni_od), stitky, args.max_smen_mesic
-    )
+    try:
+        id_ = repo.pridat_zamestnance(
+            conn, args.jmeno, date.fromisoformat(args.aktivni_od), stitky, args.max_smen_mesic
+        )
+    except ValueError as e:
+        print(e)
+        raise SystemExit(1)
     print(f"Zaměstnanec přidán, id={id_}")
 
 
@@ -53,12 +64,22 @@ def _cmd_deaktivovat_zamestnance(args: argparse.Namespace) -> None:
 
 def _cmd_opravit_jmeno(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
-    repo.opravit_jmeno_zamestnance(conn, args.id, args.jmeno)
+    try:
+        repo.opravit_jmeno_zamestnance(conn, args.id, args.jmeno)
+    except ValueError as e:
+        print(e)
+        raise SystemExit(1)
     print(f"Zaměstnanec {args.id} přejmenován na „{args.jmeno}“")
 
 
 def _cmd_pridat_nedostupnost(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
+    if repo.zamestnanec_podle_id(conn, args.zamestnanec_id) is None:
+        # Bez tyhle kontroly by neplatné id spadlo na syrový
+        # sqlite3.IntegrityError (cizí klíč) - stejný nález jako dřív u
+        # webových rout (viz audit appky), tady jen chybí CLI ekvivalent.
+        print(f"Zaměstnanec id={args.zamestnanec_id} neexistuje.")
+        raise SystemExit(1)
     try:
         id_ = repo.pridat_nedostupnost(
             conn,
@@ -77,6 +98,10 @@ def _cmd_pridat_nedostupnost(args: argparse.Namespace) -> None:
 
 def _cmd_pridat_dvojici(args: argparse.Namespace) -> None:
     conn = _pripojit_a_inicializovat(Path(args.db))
+    for zid in (args.zamestnanec_a_id, args.zamestnanec_b_id):
+        if repo.zamestnanec_podle_id(conn, zid) is None:
+            print(f"Zaměstnanec id={zid} neexistuje.")
+            raise SystemExit(1)
     id_ = repo.pridat_dvojici(conn, args.zamestnanec_a_id, args.zamestnanec_b_id, args.typ)
     print(f"Dvojice přidána, id={id_}")
 
@@ -171,13 +196,18 @@ def _cmd_import_txt(args: argparse.Namespace) -> None:
                 continue
             typ, zakazana_smena = vysledek
 
-            # Idempotence: (zaměstnanec, od, do, typ) už existuje -> přeskočit.
+            # Idempotence: (zaměstnanec, od, do, typ, zakazana_smena) už
+            # existuje -> přeskočit. zakazana_smena musí být v porovnání taky
+            # (nález auditu appky) - jinak by se při přeimportu se změněným
+            # "ne denní" -> "ne noční" pro stejný den nový (opačný) zákaz
+            # tiše zahodil jako "duplicita" a starý by zůstal v DB.
             existujici = repo.nedostupnosti_v_obdobi(conn, polozka.od, polozka.do)
             duplicita = any(
                 n.zamestnanec_id == zamestnanec.id
                 and n.od == polozka.od
                 and n.do == polozka.do
                 and n.typ == typ
+                and n.zakazana_smena == zakazana_smena
                 for n in existujici
             )
             if duplicita:
@@ -230,9 +260,23 @@ def _cmd_generuj(args: argparse.Namespace) -> None:
             "s tím, že má každý úplně volnou ruku.\n"
         )
 
-    config = config_pro_mesic(conn, args.rok, args.mesic, Path(args.config_yaml))
+    config = config_pro_mesic(conn, args.rok, args.mesic, Path(args.config_yaml), profil=args.profil)
+    nezkuseni = tuple(j.strip() for j in args.nezkuseni.split(",") if j.strip())
     try:
-        schedule = generate_schedule(config)
+        schedule = generate_schedule(
+            config,
+            time_limit_s=UROVNE_HLEDANI[args.uroven_hledani],
+            random_seed=args.seed,
+            # stejné pravidlo jako web/app.py:_vyresit - "optimalizovany" =
+            # dvoufázové řešení (co nejméně krizových dnů), ostatní profily
+            # jednofázově.
+            prioritizovat_obsazeni=(args.profil == "optimalizovany"),
+            preferovat_krizove_o_vikendu=args.preferovat_krizove_vikendy,
+            krizove_jen_o_vikendu=args.krizove_jen_vikendy,
+            preferovat_stejnou_smenu_o_vikendu=args.stejna_smena_vikend,
+            vyhnout_se_pondeli=args.vyhnout_se_pondeli,
+            nezkuseni=nezkuseni,
+        )
     except NelzeSestavitError as e:
         print(e)
         raise SystemExit(1)
@@ -340,6 +384,47 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("mesic", type=int)
     p.add_argument("--config-yaml", default=str(DEFAULT_CONFIG_YAML))
     p.add_argument("--pdf", help="navíc uložit A4 PDF pro nástěnku na tuto cestu")
+    p.add_argument(
+        "--profil", choices=["normalni", "krizovy", "optimalizovany"], default="normalni",
+        help="bere obsazení/pravidla/váhy z DB tabulky nastaveni pro tento profil (viz /admin/nastaveni)",
+    )
+    p.add_argument(
+        "--preferovat-krizove-vikendy", action="store_true",
+        help="když je krizový den nevyhnutelný, preferuj sobotu/neděli před všedním dnem",
+    )
+    p.add_argument(
+        "--krizove-jen-vikendy", action="store_true",
+        help=(
+            "krizový den v pondělí až pátek smí nastat jen když jsou už "
+            "krizové všechny víkendy v měsíci (priorita, ne absolutní zákaz)"
+        ),
+    )
+    p.add_argument(
+        "--stejna-smena-vikend", action="store_true",
+        help="preferuj stejný typ směny v sobotu i neděli u téhož člověka (zvyklost, měkké)",
+    )
+    p.add_argument(
+        "--vyhnout-se-pondeli", action="store_true",
+        help="mezi všedními dny preferuj úterý-pátek před pondělím, když je krizový den nevyhnutelný",
+    )
+    p.add_argument(
+        "--nezkuseni", default="",
+        help="jména (oddělená čárkou) lidí, co nemají být na směně bez zkušeného kolegy (měkké)",
+    )
+    p.add_argument(
+        "--uroven-hledani", choices=list(UROVNE_HLEDANI), default="standardne",
+        help=(
+            "časový rozpočet solveru NEZÁVISLE na --profil - rychle "
+            f"({UROVNE_HLEDANI['rychle']:.0f} s) / standardne "
+            f"({UROVNE_HLEDANI['standardne']:.0f} s, výchozí) / dukladne "
+            f"({UROVNE_HLEDANI['dukladne']:.0f} s) - víc času může zlepšit "
+            "kvalitu (méně krizových dnů, féroveji), nikdy ne zhoršit"
+        ),
+    )
+    p.add_argument(
+        "--seed", type=int, default=None,
+        help="pevný random seed pro deterministický výsledek (num_search_workers=1)",
+    )
     p.set_defaults(func=_cmd_generuj)
 
     args = parser.parse_args(argv)

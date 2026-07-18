@@ -65,31 +65,90 @@ def _diagnostikuj_nesplnitelnost(config: Config) -> list[str]:
     return duvody
 
 
+_VIKENDOVY_FAKTOR_VSEDNI_DEN = 3
+_PONDELI_DALSI_FAKTOR = 3
+_VAHA_SOULAD_VIKENDU = 8
+_VAHA_NEZKUSENI_BEZ_DOZORU = 6
+
+
 def generate_schedule(
     config: Config,
     time_limit_s: float = 30.0,
     random_seed: int | None = None,
     prioritizovat_obsazeni: bool = False,
+    preferovat_krizove_o_vikendu: bool = False,
+    krizove_jen_o_vikendu: bool = False,
+    preferovat_stejnou_smenu_o_vikendu: bool = False,
+    vyhnout_se_pondeli: bool = False,
+    nezkuseni: tuple[str, ...] = (),
 ) -> Schedule:
     """Vygeneruje rozpis pro daný config.
+
+    vyhnout_se_pondeli: měkká preference (na přání, jen pro jedno konkrétní
+    generování - "zkus to tak, aby krizový den nebyl pondělí") - mezi
+    všedními dny dá pondělí ještě vyšší váhu plného obsazení než zbytek
+    týdne (nad rámec preferovat_krizove_o_vikendu), takže pokud je po
+    vyčerpání víkendů (viz krizove_jen_o_vikendu) pořád potřeba krizový
+    všední den, solver upřednostní úterý-pátek před pondělím. Není to
+    záruka (může prohrát, když je pondělí jediný den, co reálně nejde
+    zaplnit).
+
+    nezkuseni: jména lidí, u kterých se (měkce) penalizuje, když jsou na
+    směně (D i N) BEZ jediného zkušeného kolegy - na přání ("nováčci/
+    brigádníci nevěděli, co mají dělat"). Prázdné jméno navíc v seznamu se
+    ignoruje (config nemusí všechny vždycky znát).
 
     random_seed: při nezměněném configu ovlivní, ke kterému z rovnocenně
     optimálních řešení solver dojde - použitelné pro nabídku více variant
     rozpisu ke stejnému zadání (stejný seed = stejný výsledek).
 
-    prioritizovat_obsazeni: dvoufázové řešení pro profil "optimalizovany"
-    (na přání - "optimalizovat" = co nejméně krizových dnů, ne jen vyšší
-    váha). Zkoušelo se nejdřív jen vyšší vahy.plne_obsazeni (viz
+    preferovat_stejnou_smenu_o_vikendu: měkká preference (na přání - "je
+    zvyklost, že víkendová směna bývá oba dny stejná") - bonus v cíli za
+    to, že člověk má v sobotu a neděli STEJNÝ typ (D+D, N+N, nebo oba
+    volno), ne rozdílný (D+N, D+volno apod.). Neplatí jako tvrdé pravidlo
+    (může to prohrát proti fondu hodin/férovosti/nedostupnostem) - je to
+    jen zvyklost, ne pravidlo z CLAUDE.md.
+
+    preferovat_krizove_o_vikendu: když víc plně obsazených D/N slotů nejde
+    dosáhnout současně (krizový den je nevyhnutelný), preferuje, aby
+    nedostatek padl na sobotu/neděli, ne na všední den (na přání). Funguje
+    tak, že plné obsazení ve všední den má v cíli vyšší váhu než o víkendu
+    (_VIKENDOVY_FAKTOR_VSEDNI_DEN) - CELKOVÝ počet plně obsazených dnů
+    (plna_promenne, viz prioritizovat_obsazeni níž) tím zůstává beze změny,
+    ovlivní se jen KTERÉ dny jsou ty plné, když je nutné vybírat. Beze změny
+    (výchozí False), pokud tenhle výběr nezáleží. Na rozdíl od
+    krizove_jen_o_vikendu níž je tohle jen PREFERENCE (měkká, může selhat na
+    strukturálně vynucených krizových dnech, viz test), ne záruka.
+
+    krizove_jen_o_vikendu: TVRDĚ vynutí pořadí, ve kterém se "spotřebovává"
+    nevyhnutelný nedostatek (na přání, upřesněno: NENÍ to absolutní zákaz
+    krizového všedního dne, je to PRIORITA) - krizový den v pondělí až
+    pátek smí nastat JEN když jsou už krizové VŠECHNY víkendové dny v
+    měsíci (jinak by šlo "ušetřit" víkend na úkor všedního dne, přesně
+    opačně, než je zvyklost). Implementováno jako implikace pro každou
+    dvojici (víkendový den, všední den): pokud je víkendový den plně
+    obsazený (D i N), musí být plně obsazený i ten všední - jakmile jsou
+    všechny víkendy vyčerpané (žádný není plně obsazený), všední dny jsou
+    volné pro krizi jako obvykle. Na rozdíl od preferovat_krizove_o_vikendu
+    výš tohle NEMĚNÍ celkový počet krizových dnů (ten určuje jen
+    prioritizovat_obsazeni/fond hodin) - jen vynucuje, že se nejdřív musí
+    "spotřebovat" všechny víkendy, než přijde na řadu všední den.
+
+    prioritizovat_obsazeni: pro profil "optimalizovany" - lexikografická
+    hierarchie úrovní priority (na přání, zobecněno z původního
+    dvoufázového "obsazení, pak zbytek"): obsazení -> rozložení plných
+    dnů (víkend/pondělí) -> férovost + neslučitelné dvojice -> zvyklosti
+    (sobota=neděle, nezkušení bez dozoru). Každá úroveň se vyřeší
+    SAMOSTATNĚ (bez nižších priorit v cíli), dosažené optimum se zamkne
+    jako tvrdé minimum pro další úroveň - garance je strukturální (tvrdé
+    pravidlo z předchozí úrovně), ne otázka poměru vah v jednom součtu.
+    Zkoušelo se nejdřív jen vyšší vahy.plne_obsazeni (viz
     web/app.py:VYCHOZI_VAHY) - matematicky by měla dominovat nad
     férovostí, ale velký koeficient v jediném součtu prokazatelně ZHORŠIL
     výsledek (10 → 19 krizových dnů na reálných datech) - CP-SAT search
     heuristiky jsou citlivé na rozptyl velikostí koeficientů v cíli, ne
-    jen jejich poměr. Skutečně spolehlivé řešení je fáze 1: najít
-    nejvyšší dosažitelný počet plně obsazených D/N slotů SAMOSTATNĚ (bez
-    férovosti v cíli), pak tenhle počet vynutit jako tvrdé minimum a
-    teprve v fázi 2 optimalizovat férovost mezi řešeními, která ho
-    splňují - garance je strukturální (tvrdé pravidlo), ne otázka poměru
-    vah. Čas se dělí půl napůl mezi fáze.
+    jen jejich poměr. Čas se dělí rovnoměrně mezi (aktivní) úrovně,
+    poslední dostane zbytek. Přesný mechanismus viz kód níž.
     """
     pocet_dni = config.pocet_dni
     dny = range(pocet_dni)  # interně 0-indexováno, navenek (config, Schedule) 1-indexováno
@@ -188,26 +247,100 @@ def generate_schedule(
         strop = config.max_smen_mesic_override.get(z, config.pravidla.max_smen_mesic)
         model.Add(sum(pracuje[z, d] for d in dny) <= strop)
 
-    # --- měkká pravidla (optimalizační cíl) ---
-    cile = []
-    plna_promenne = []  # jen plna_d/plna_n bez váhy - viz prioritizovat_obsazeni níž
+    # --- měkká pravidla (optimalizační cíl), rozdělená do úrovní priority
+    # pro prioritizovat_obsazeni níž (od nejdůležitější): rozložení plných
+    # dnů (které dny) -> férovost mezi lidmi + neslučitelné dvojice
+    # (původní pravidla z CLAUDE.md) -> zvyklosti (nejnovější, na přání).
+    plna_promenne = []  # jen plna_d/plna_n bez váhy - úroveň 0 (obsazení)
+    cile_rozlozeni = []  # úroveň 1: KTERÉ dny jsou plné (víkend/pondělí)
+    cile_ferovost = []  # úroveň 2: férovost + neslučitelné dvojice
+    cile_zvyklosti = []  # úroveň 3: sobota=neděle, nezkušení bez dozoru
+    plna_d_den: dict[int, cp_model.IntVar] = {}
+    plna_n_den: dict[int, cp_model.IntVar] = {}
 
     for d in dny:
+        vsedni_den_weekday = date(config.rok, config.mesic, d + 1).weekday()
+        je_vikend_d = vsedni_den_weekday >= 5
+        vaha_obsazeni = vahy.plne_obsazeni
+        if preferovat_krizove_o_vikendu and not je_vikend_d:
+            vaha_obsazeni *= _VIKENDOVY_FAKTOR_VSEDNI_DEN
+        if vyhnout_se_pondeli and vsedni_den_weekday == 0:
+            vaha_obsazeni *= _PONDELI_DALSI_FAKTOR
+
         plna_d = model.NewBoolVar(f"plnaD_{d}")
         model.Add(sum(smena[z, d, D] for z in lide) == o.denni_max).OnlyEnforceIf(plna_d)
-        cile.append(vahy.plne_obsazeni * plna_d)
+        if krizove_jen_o_vikendu:
+            # Obousměrná reifikace (ne jen "plna_d=True => plný") jen když
+            # je potřeba (navíc omezení = navíc čas solveru) - bez ní by
+            # krizove_jen_o_vikendu níž šlo obejít: solver by mohl nechat
+            # plna_d=False i na skutečně plně obsazeném víkendovém dnu, jen
+            # aby se vyhnul povinnosti dotáhnout na plno i všední dny.
+            model.Add(sum(smena[z, d, D] for z in lide) < o.denni_max).OnlyEnforceIf(plna_d.Not())
+        cile_rozlozeni.append(vaha_obsazeni * plna_d)
         plna_promenne.append(plna_d)
+        plna_d_den[d] = plna_d
+
         plna_n = model.NewBoolVar(f"plnaN_{d}")
         model.Add(sum(smena[z, d, N] for z in lide) == o.nocni_max).OnlyEnforceIf(plna_n)
-        cile.append(vahy.plne_obsazeni * plna_n)
+        if krizove_jen_o_vikendu:
+            model.Add(sum(smena[z, d, N] for z in lide) < o.nocni_max).OnlyEnforceIf(plna_n.Not())
+        cile_rozlozeni.append(vaha_obsazeni * plna_n)
         plna_promenne.append(plna_n)
+        plna_n_den[d] = plna_n
+
+    if krizove_jen_o_vikendu:
+        # Krizový všední den smí nastat, jen když jsou už krizové VŠECHNY
+        # víkendové dny (viz docstring výš) - pro každou dvojici (víkendový
+        # den, všední den): plně obsazený víkend => musí být plně obsazený
+        # i ten všední den. Jakmile ani jeden víkend není plný, implikace
+        # je pro všechny dvojice splněná automaticky a všední dny jsou
+        # volné jako obvykle.
+        vikendove_dny = [d for d in dny if date(config.rok, config.mesic, d + 1).weekday() >= 5]
+        vsedni_dny = [d for d in dny if date(config.rok, config.mesic, d + 1).weekday() < 5]
+        plny_den = {}
+        for d in vikendove_dny:
+            p = model.NewBoolVar(f"plny_vikend_{d}")
+            model.AddBoolAnd(plna_d_den[d], plna_n_den[d]).OnlyEnforceIf(p)
+            model.AddBoolOr(plna_d_den[d].Not(), plna_n_den[d].Not()).OnlyEnforceIf(p.Not())
+            plny_den[d] = p
+        for w in vikendove_dny:
+            for d in vsedni_dny:
+                model.AddImplication(plny_den[w], plna_d_den[d])
+                model.AddImplication(plny_den[w], plna_n_den[d])
+
+    if preferovat_stejnou_smenu_o_vikendu:
+        # Bonus za to, že sobota a neděle mají u téhož člověka STEJNÝ typ
+        # (D+D, N+N nebo oba volno) - jen měkké, viz docstring výš.
+        for d in dny:
+            if date(config.rok, config.mesic, d + 1).weekday() == 5 and d + 1 < pocet_dni:
+                for z in lide:
+                    soulad = model.NewBoolVar(f"soulad_vikend_{z}_{d}")
+                    model.Add(smena[z, d, D] == smena[z, d + 1, D]).OnlyEnforceIf(soulad)
+                    model.Add(smena[z, d, N] == smena[z, d + 1, N]).OnlyEnforceIf(soulad)
+                    cile_zvyklosti.append(_VAHA_SOULAD_VIKENDU * soulad)
+
+    zkuseni_nezkuseni = [z for z in nezkuseni if z in lide]
+    if zkuseni_nezkuseni:
+        zkuseni_lide = [z for z in lide if z not in zkuseni_nezkuseni]
+        for d in dny:
+            for s in (D, N):
+                zadny_zkuseny = model.NewBoolVar(f"zadny_zkuseny_{d}_{s}")
+                # Jen jednosměrná reifikace stačí (penalizace, ne odměna) -
+                # cíl chce zadny_zkuseny=False, takže bez tyhle podmínky by
+                # ho tak solver nastavil "zadarmo" i když je reálně bez
+                # zkušeného dozoru. Naopak False => aspoň 1 zkušený zaručuje,
+                # že "False" nejde tvrdit nepravdivě.
+                model.Add(sum(smena[z, d, s] for z in zkuseni_lide) >= 1).OnlyEnforceIf(
+                    zadny_zkuseny.Not()
+                )
+                cile_zvyklosti.append(-_VAHA_NEZKUSENI_BEZ_DOZORU * zadny_zkuseny)
 
     nocni_pocty = [sum(smena[z, d, N] for d in dny) for z in lide]
     noc_max = model.NewIntVar(0, pocet_dni, "noc_max")
     noc_min = model.NewIntVar(0, pocet_dni, "noc_min")
     model.AddMaxEquality(noc_max, nocni_pocty)
     model.AddMinEquality(noc_min, nocni_pocty)
-    cile.append(-vahy.ferovost_nocni * (noc_max - noc_min))
+    cile_ferovost.append(-vahy.ferovost_nocni * (noc_max - noc_min))
 
     vikendy = [d for d in dny if date(config.rok, config.mesic, d + 1).weekday() >= 5]
     vik_pocty = [sum(pracuje[z, d] for d in vikendy) for z in lide]
@@ -215,14 +348,14 @@ def generate_schedule(
     vik_min = model.NewIntVar(0, pocet_dni, "vik_min")
     model.AddMaxEquality(vik_max, vik_pocty)
     model.AddMinEquality(vik_min, vik_pocty)
-    cile.append(-vahy.ferovost_vikendy * (vik_max - vik_min))
+    cile_ferovost.append(-vahy.ferovost_vikendy * (vik_max - vik_min))
 
     celkem = [sum(pracuje[z, d] for d in dny) for z in lide]
     c_max = model.NewIntVar(0, pocet_dni, "c_max")
     c_min = model.NewIntVar(0, pocet_dni, "c_min")
     model.AddMaxEquality(c_max, celkem)
     model.AddMinEquality(c_min, celkem)
-    cile.append(-vahy.ferovost_celkem * (c_max - c_min))
+    cile_ferovost.append(-vahy.ferovost_celkem * (c_max - c_min))
 
     for a, b in config.nekompatibilni_dvojice:
         for d in dny:
@@ -232,57 +365,85 @@ def generate_schedule(
                 model.AddBoolOr(
                     smena[a, d, s].Not(), smena[b, d, s].Not()
                 ).OnlyEnforceIf(spolu.Not())
-                cile.append(-vahy.nekompatibilni_penalizace * spolu)
+                cile_ferovost.append(-vahy.nekompatibilni_penalizace * spolu)
 
-    zbyvajici_cas = time_limit_s
     if prioritizovat_obsazeni:
-        # Fáze 1: jen obsazení, bez férovosti v cíli - najde nejvyšší
-        # dosažitelný počet plně obsazených D/N slotů se stejnými tvrdými
-        # pravidly (nedostupnosti, N->D, max v řadě, fond...). Jen 1/3
-        # času - fáze 1 řeší jednodušší (jednorozměrný) cíl, většinu
-        # rozpočtu potřebuje až fáze 2 na hledání férového rozdělení
-        # v rámci nově přidaného omezení.
-        model.Maximize(sum(plna_promenne))
-        cas_faze1 = time_limit_s / 3
-        zbyvajici_cas = time_limit_s - cas_faze1
-        solver_faze1 = cp_model.CpSolver()
-        solver_faze1.parameters.max_time_in_seconds = cas_faze1
+        # Lexikografická hierarchie úrovní priority (zobecnění dřívějšího
+        # dvoufázového "obsazení, pak zbytek" na přání o zvyklostech):
+        # každá úroveň se vyřeší SAMOSTATNĚ (bez nižších priorit v cíli),
+        # její dosažené optimum se zamkne jako tvrdé minimum pro DALŠÍ
+        # (nižší) úroveň, teprve pak se ta řeší. Garance je strukturální
+        # (tvrdé pravidlo z předchozí úrovně), ne otázka poměru vah v
+        # jednom součtu - vyšší váha samotná už jednou prokazatelně
+        # zhoršila výsledek (10 → 19 krizových dnů, viz historie).
+        #   0. obsazení (plna_promenne, bez váhy) - kolik dnů je plných
+        #   1. rozložení + férovost + neslučitelné dvojice (spojené jako
+        #      původně) - KTERÉ dny jsou plné (víkend/pondělí přednost) i
+        #      mezi kým se rozdělí, řeší se SPOLU. Zkoušelo se rozdělit i
+        #      tohle na dvě samostatné úrovně (rozložení jako vyšší
+        #      priorita než férovost), ale na stejný celkový čas to
+        #      REGRESOVALO (nález testem: samostatná úroveň "rozložení"
+        #      při omezeném čase někdy nedosáhla ani stejného počtu
+        #      plných dnů jako úroveň 0) - víc úrovní = míň času na
+        #      každou, CP-SAT to nestíhal dohnat.
+        #   2. zvyklosti (cile_zvyklosti) - sobota=neděle, nezkušení bez
+        #      dozoru - jen když je aspoň jedna z těch preferencí zapnutá
+        #      (nejnovější, nejnižší priorita, viz na přání)
+        urovne = [plna_promenne, cile_rozlozeni + cile_ferovost]
+        if cile_zvyklosti:
+            urovne.append(cile_zvyklosti)
+
+        # Úroveň 0 dostane pevně 1/3 (jako původně, ověřeno spolehlivé),
+        # zbytek se rovnoměrně rozdělí mezi zbývající (1 nebo 2) úrovně -
+        # beze zvyklostí je to přesně původní dvoufázové 1/3 + 2/3.
+        cas_obsazeni = time_limit_s / 3
+        cas_na_uroven = (time_limit_s - cas_obsazeni) / (len(urovne) - 1)
+
+        zbyvajici_cas = time_limit_s
+        for i, vyrazy in enumerate(urovne):
+            je_posledni = i == len(urovne) - 1
+            cas = zbyvajici_cas if je_posledni else (cas_obsazeni if i == 0 else cas_na_uroven)
+            model.Maximize(sum(vyrazy))
+            solver = cp_model.CpSolver()
+            solver.parameters.max_time_in_seconds = cas
+            if random_seed is not None:
+                solver.parameters.random_seed = random_seed
+                solver.parameters.num_search_workers = 1
+            status = solver.Solve(model)
+            if not je_posledni:
+                zbyvajici_cas -= cas
+                if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                    # Tvrdé minimum pro další úroveň - tahle už nesmí
+                    # klesnout pod to, co tahle úroveň prokazatelně umí,
+                    # ať nižší priorita níž nemůže "ukrást" nic zpátky.
+                    nejlepsi = round(solver.ObjectiveValue())
+                    model.Add(sum(vyrazy) >= nejlepsi)
+                    # Hint řešením týhle úrovně pro tu další - bez tohohle
+                    # by další úroveň musela hledat přípustný bod ÚPLNĚ
+                    # ZNOVA (jiný cíl = jiné pořadí prohledávání) a na
+                    # složitějším zadání to prokazatelně nestíhala
+                    # (skončila UNKNOWN, i když řešení evidentně existuje
+                    # - viz test). ClearHints - jinak by se hint z týhle
+                    # úrovně jen přidal k hintu z úrovně předchozí (stejná
+                    # proměnná dvakrát v hint listu).
+                    model.ClearHints()
+                    for promenna in smena.values():
+                        model.AddHint(promenna, solver.Value(promenna))
+                # Nesplnitelnost (INFEASIBLE) na nižší než poslední úrovni
+                # nastat nemůže - tvrdá pravidla jsou stejná jako u jediné
+                # fáze. Nedostatek času (UNKNOWN) se prostě přeskočí beze
+                # zamčení/hintu, diagnostika běží až po poslední úrovni.
+    else:
+        model.Maximize(sum(cile_rozlozeni + cile_ferovost + cile_zvyklosti))
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = time_limit_s
         if random_seed is not None:
-            solver_faze1.parameters.random_seed = random_seed
-            solver_faze1.parameters.num_search_workers = 1
-        status_faze1 = solver_faze1.Solve(model)
-        if status_faze1 in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            nejlepsi_obsazeni = int(solver_faze1.ObjectiveValue())
-            # Tvrdé minimum pro fázi 2 - obsazení už nesmí klesnout pod
-            # to, co fáze 1 prokazatelně umí, ať férovost níž nemůže
-            # "ukrást" ani jeden plně obsazený den zpátky.
-            model.Add(sum(plna_promenne) >= nejlepsi_obsazeni)
-            # Fázi 2 se dá řešení fáze 1 jako hint (je to platné přípustné
-            # řešení, splňuje i nově přidané omezení) - bez tohohle fáze 2
-            # musí ve zbylém čase najít přípustný bod ÚPLNĚ ZNOVA (jiný
-            # cíl = jiné pořadí prohledávání) a na složitějším zadání to
-            # prokazatelně nestíhala (skončila UNKNOWN, i když řešení
-            # evidentně existuje - viz test). S hintem fáze 2 nikdy
-            # nedopadne hůř než fáze 1, i kdyby na doladění férovosti
-            # nezbyl čas.
-            for promenna in smena.values():
-                model.AddHint(promenna, solver_faze1.Value(promenna))
-        # Nesplnitelnost (INFEASIBLE) fáze 1 nastat nemůže - tvrdá
-        # pravidla jsou stejná jako u jediné fáze, ta se diagnostikuje
-        # až níž ze stejného modelu. Prostě se pokračuje do fáze 2 beze
-        # změny (žádné dodatečné omezení ani hint), diagnostika proběhne
-        # tam.
-
-    model.Maximize(sum(cile))
-
-    solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = zbyvajici_cas
-    if random_seed is not None:
-        solver.parameters.random_seed = random_seed
-        # Determinismus (stejný seed -> stejný výsledek) vyžaduje jediné
-        # vlákno - výchozí paralelní portfolio search seed nerespektuje.
-        solver.parameters.num_search_workers = 1
-    status = solver.Solve(model)
+            solver.parameters.random_seed = random_seed
+            # Determinismus (stejný seed -> stejný výsledek) vyžaduje
+            # jediné vlákno - výchozí paralelní portfolio search seed
+            # nerespektuje.
+            solver.parameters.num_search_workers = 1
+        status = solver.Solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         duvody = _diagnostikuj_nesplnitelnost(config)

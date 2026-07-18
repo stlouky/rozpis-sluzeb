@@ -6,7 +6,15 @@ import pytest
 from solver.config import ConfigError, config_from_dict, load_config
 from solver.core import NelzeSestavitError, generate_schedule
 
+# Skoro celý soubor volá reálný CP-SAT solve (pomalé) - "not slow" ať jde
+# přeskočit při rychlé iteraci na jiné části appky (viz pytest.ini).
+pytestmark = pytest.mark.slow
+
 TIME_LIMIT = 10.0
+# Kratší limit pro srovnávací testy (bez/s preferencí) - ty ověřují SMĚR
+# rozdílu na malém syntetickém configu, ne kvalitu řešení na reálné škále,
+# takže nepotřebují plných 10 s na KAŽDÉ ze dvou volání (viz výkonový audit).
+TIME_LIMIT_SROVNANI = 5.0
 
 ZAMESTNANCI_12 = [
     "Alena", "Bedrich", "Cyril", "Dana", "Emil", "Frantiska",
@@ -473,6 +481,164 @@ def test_prioritizovat_obsazeni_neztrati_plne_dny_kvuli_ferovosti():
     s_prioritou = generate_schedule(config, time_limit_s=TIME_LIMIT, random_seed=42,
                                      prioritizovat_obsazeni=True)
     assert _pocet_plnych_d(config, s_prioritou) >= _pocet_plnych_d(config, bez_priority)
+
+
+# --- preferovat_krizove_o_vikendu (na přání: když je krizový den
+# nevyhnutelný, ať padne na sobotu/neděli, ne na všední den) ---
+
+def _pocet_krizovych_dnu(config, schedule, vikend: bool):
+    return sum(
+        1 for den in range(1, schedule.pocet_dni + 1)
+        if schedule.je_vikend(den) == vikend
+        and schedule.obsazeni_dne(den)[0] < config.obsazeni.denni_max
+    )
+
+
+def test_preferovat_krizove_o_vikendu_presune_nedostatek_na_vikend():
+    # Stejný "config s napětím" jako u prioritizovat_obsazeni - bez napětí
+    # (viz zakladni_config) by nebylo co vybírat, krizové dny by nenastaly.
+    config = _config_s_napetim()
+    bez_preference = generate_schedule(
+        config, time_limit_s=TIME_LIMIT_SROVNANI, random_seed=42, prioritizovat_obsazeni=True,
+    )
+    s_preferenci = generate_schedule(
+        config, time_limit_s=TIME_LIMIT_SROVNANI, random_seed=42,
+        prioritizovat_obsazeni=True, preferovat_krizove_o_vikendu=True,
+    )
+    # Celkový počet plně obsazených dnů (fáze 1) se preferencí nesmí zhoršit
+    # - mění se jen KTERÉ dny jsou plné, ne KOLIK.
+    assert _pocet_plnych_d(config, s_preferenci) >= _pocet_plnych_d(config, bez_preference)
+    # S preferencí musí být míň (nebo stejně) krizových VŠEDNÍCH dnů než bez ní.
+    krizove_vsedni_bez = _pocet_krizovych_dnu(config, bez_preference, vikend=False)
+    krizove_vsedni_s = _pocet_krizovych_dnu(config, s_preferenci, vikend=False)
+    assert krizove_vsedni_s <= krizove_vsedni_bez
+
+
+# --- vyhnout_se_pondeli (na přání, jednorázově: "krizový den ne pondělí") ---
+
+def _pocet_pondelich_krizovych(config, schedule):
+    from datetime import date as _date
+
+    return sum(
+        1 for den in range(1, schedule.pocet_dni + 1)
+        if _date(schedule.rok, schedule.mesic, den).weekday() == 0
+        and (
+            schedule.obsazeni_dne(den)[0] < config.obsazeni.denni_max
+            or schedule.obsazeni_dne(den)[1] < config.obsazeni.nocni_max
+        )
+    )
+
+
+def test_vyhnout_se_pondeli_snizi_pocet_krizovych_pondeli():
+    config = _config_s_napetim()
+    # Kombinuje 3 vrstvy (prioritizovat_obsazeni + preferovat_krizove_o_vikendu
+    # + vyhnout_se_pondeli) - na TIME_LIMIT_SROVNANI fáze 2 nestíhala dohnat
+    # stejný počet plných dnů (ověřeno: 5× konzistentně padalo, ne flaky),
+    # proto tenhle zůstává na plném TIME_LIMIT.
+    bez = generate_schedule(
+        config, time_limit_s=TIME_LIMIT, random_seed=42,
+        prioritizovat_obsazeni=True, preferovat_krizove_o_vikendu=True,
+    )
+    s_tim = generate_schedule(
+        config, time_limit_s=TIME_LIMIT, random_seed=42,
+        prioritizovat_obsazeni=True, preferovat_krizove_o_vikendu=True, vyhnout_se_pondeli=True,
+    )
+    # Celkový počet plně obsazených dnů se nesmí zhoršit - mění se jen KDE.
+    assert _pocet_plnych_d(config, s_tim) >= _pocet_plnych_d(config, bez)
+    assert _pocet_pondelich_krizovych(config, s_tim) <= _pocet_pondelich_krizovych(config, bez)
+
+
+# --- nezkuseni (na přání, jednorázově: nováčci/brigádníci ne sami na
+# směně, bez jediného zkušeného kolegy) ---
+
+def _dny_bez_zkuseneho(schedule, nezkuseni):
+    pocet = 0
+    for den in range(1, schedule.pocet_dni + 1):
+        for typ in ("D", "N"):
+            pritomni = [j for j in schedule.jmena if schedule.smena_zamestnance(j, den) == typ]
+            if pritomni and all(j in nezkuseni for j in pritomni):
+                pocet += 1
+    return pocet
+
+
+def test_nezkuseni_bez_dozoru_snizi_pocet_takovych_smen():
+    zamestnanci = ["Zkuseny1", "Zkuseny2", "Nezkuseny1", "Nezkuseny2", "Nezkuseny3", "Nezkuseny4"]
+    nezkuseni = ("Nezkuseny1", "Nezkuseny2", "Nezkuseny3", "Nezkuseny4")
+    config = zakladni_config(
+        zamestnanci=[{"jmeno": j} for j in zamestnanci],
+        obsazeni=dict(denni_min=1, denni_max=1, nocni_min=2, nocni_max=2),
+        pravidla=dict(max_v_rade=3, max_smen_mesic=20),
+    )
+    bez = generate_schedule(config, time_limit_s=TIME_LIMIT_SROVNANI, random_seed=42)
+    s_tim = generate_schedule(
+        config, time_limit_s=TIME_LIMIT_SROVNANI, random_seed=42, nezkuseni=nezkuseni
+    )
+    assert _dny_bez_zkuseneho(s_tim, nezkuseni) <= _dny_bez_zkuseneho(bez, nezkuseni)
+
+
+# --- preferovat_stejnou_smenu_o_vikendu (na přání: víkendová směna bývá
+# oba dny stejná - D+D nebo N+N, ne D+N/D+volno) ---
+
+def _pocet_shodnych_vikendovych_dvojic(schedule):
+    from datetime import date as _date
+
+    pocet = 0
+    for den in range(1, schedule.pocet_dni):
+        if _date(schedule.rok, schedule.mesic, den).weekday() == 5:
+            for jmeno in schedule.jmena:
+                if schedule.smena_zamestnance(jmeno, den) == schedule.smena_zamestnance(jmeno, den + 1):
+                    pocet += 1
+    return pocet
+
+
+def test_preferovat_stejnou_smenu_o_vikendu_zvysi_shodu_sobota_nedele():
+    config = _config_s_napetim()
+    bez_preference = generate_schedule(config, time_limit_s=TIME_LIMIT_SROVNANI, random_seed=42)
+    s_preferenci = generate_schedule(
+        config, time_limit_s=TIME_LIMIT_SROVNANI, random_seed=42,
+        preferovat_stejnou_smenu_o_vikendu=True,
+    )
+    assert _pocet_shodnych_vikendovych_dvojic(s_preferenci) >= _pocet_shodnych_vikendovych_dvojic(
+        bez_preference
+    )
+
+
+# --- krizove_jen_o_vikendu (na přání, upřesněno: NENÍ to absolutní zákaz
+# krizového všedního dne - je to PRIORITA: všední den smí být krizový, jen
+# když jsou už krizové VŠECHNY víkendové dny v měsíci) ---
+
+def test_krizove_jen_o_vikendu_bez_napeti_vynuti_plne_obsazeni_vsude():
+    # zakladni_config sama o sobě má na CELÝ měsíc těsnou kapacitu (12 lidí
+    # x max_smen_mesic=15 = 180 směn, ale 31 dní x 6 (4D+2N) = 186 potřeba) -
+    # vyšší strop (20) tenhle strukturální nedostatek odstraní, aby šlo
+    # ověřit čistě "bez napětí zůstane plné všude", ne vedlejší efekt fondu.
+    config = zakladni_config(pravidla=dict(max_v_rade=3, max_smen_mesic=20))
+    schedule = generate_schedule(
+        config, time_limit_s=TIME_LIMIT, random_seed=42, krizove_jen_o_vikendu=True,
+    )
+    for den in range(1, schedule.pocet_dni + 1):
+        pocet_d, pocet_n = schedule.obsazeni_dne(den)
+        assert pocet_d == config.obsazeni.denni_max
+        assert pocet_n == config.obsazeni.nocni_max
+
+
+def test_krizove_jen_o_vikendu_vynuti_i_vikendy_kdyz_vsedni_den_nejde_zaplnit():
+    # 2026-08-03 je pondělí; jen 5 z 12 lidí jsou dostupní - přesně na
+    # minimum (denni_min 3 + nocni_min 2 = 5), ale ne na max (4+2=6), takže
+    # tenhle všední den musí zůstat krizový bez ohledu na cokoli jiného.
+    # Priorita pak vyžaduje, aby byly krizové i VŠECHNY víkendové dny v
+    # měsíci - jinak neplatí "všední den krizový, jen když jsou už krizové
+    # všechny víkendy" (ne jen část z nich).
+    nedostupny_vsedni_den = 3
+    nedostupnosti = {jmeno: [nedostupny_vsedni_den] for jmeno in ZAMESTNANCI_12[:7]}
+    config = zakladni_config(nedostupnosti=nedostupnosti)
+    schedule = generate_schedule(
+        config, time_limit_s=TIME_LIMIT, random_seed=42, krizove_jen_o_vikendu=True,
+    )
+    for den in range(1, schedule.pocet_dni + 1):
+        if schedule.je_vikend(den):
+            pocet_d, pocet_n = schedule.obsazeni_dne(den)
+            assert pocet_d < config.obsazeni.denni_max or pocet_n < config.obsazeni.nocni_max
 
 
 def test_zakazana_dvojice_je_tvrda_i_kdyz_to_jinak_nejde():

@@ -109,6 +109,44 @@ def test_cli_pridat_nedostupnost_obraceny_rozsah_selze(tmp_path, capsys):
     assert "od" in capsys.readouterr().out.lower()
 
 
+def test_cli_pridat_nedostupnost_neexistujici_zamestnanec_selze_citelne(tmp_path, capsys):
+    """Nález auditu appky: bez kontroly by neplatné id spadlo na syrový
+    sqlite3.IntegrityError (cizí klíč) místo čitelné chyby."""
+    cesta_db = tmp_path / "test.db"
+    main(["--db", str(cesta_db), "pridat-zamestnance", "Alena", "2020-01-01"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as excinfo:
+        main([
+            "--db", str(cesta_db), "pridat-nedostupnost", "999",
+            "2026-08-03", "2026-08-09", "DOV",
+        ])
+    assert excinfo.value.code == 1
+    assert "neexistuje" in capsys.readouterr().out
+
+
+def test_cli_pridat_dvojici_neexistujici_zamestnanec_selze_citelne(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    main(["--db", str(cesta_db), "pridat-zamestnance", "Alena", "2020-01-01"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--db", str(cesta_db), "pridat-dvojici", "1", "999", "--typ", "zakazano"])
+    assert excinfo.value.code == 1
+    assert "neexistuje" in capsys.readouterr().out
+
+
+def test_cli_pridat_zamestnance_duplicitni_jmeno_selze_citelne(tmp_path, capsys):
+    cesta_db = tmp_path / "test.db"
+    main(["--db", str(cesta_db), "pridat-zamestnance", "Alena", "2020-01-01"])
+    capsys.readouterr()
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--db", str(cesta_db), "pridat-zamestnance", "Alena", "2020-01-01"])
+    assert excinfo.value.code == 1
+    assert "existuje" in capsys.readouterr().out
+
+
 def test_cli_pridat_nedostupnost_se_projevi_v_rozpisu(tmp_path, capsys):
     cesta_db = tmp_path / "test.db"
     _pridat_12_zamestnancu(cesta_db)
@@ -131,6 +169,72 @@ def test_cli_pridat_nedostupnost_se_projevi_v_rozpisu(tmp_path, capsys):
         assert den in radky
         prvni_sloupec = radky[den].split()[2]
         assert prvni_sloupec == "."
+
+
+def test_cli_generuj_profil_optimalizovany_zapne_prioritizovat_obsazeni(tmp_path, capsys, monkeypatch):
+    """--profil zrcadlí web/app.py:_vyresit - "optimalizovany" musí zapnout
+    dvoufázové řešení (prioritizovat_obsazeni), ostatní profily ne."""
+    cesta_db = tmp_path / "test.db"
+    _pridat_12_zamestnancu(cesta_db)
+    capsys.readouterr()
+
+    zachycene_kwargs = {}
+
+    def _falesny_generate_schedule(config, **kwargs):
+        zachycene_kwargs.update(kwargs)
+        zamestnanci = repo.aktivni_zamestnanci(repo.pripojit(cesta_db), date(2026, 8, 1))
+        return Schedule(
+            rok=2026, mesic=8, jmena=tuple(z.jmeno for z in zamestnanci),
+            smeny={}, status="OPTIMAL", cas_reseni=0.01,
+        )
+
+    monkeypatch.setattr("db.cli.generate_schedule", _falesny_generate_schedule)
+
+    main(["--db", str(cesta_db), "generuj", "2026", "8", "--profil", "optimalizovany"])
+    capsys.readouterr()
+    assert zachycene_kwargs["prioritizovat_obsazeni"] is True
+
+    main(["--db", str(cesta_db), "generuj", "2026", "8", "--profil", "normalni"])
+    capsys.readouterr()
+    assert zachycene_kwargs["prioritizovat_obsazeni"] is False
+
+
+def test_cli_generuj_uroven_hledani_a_nove_preference(tmp_path, capsys, monkeypatch):
+    """--uroven-hledani je NEZÁVISLÝ na --profil (mění jen time_limit_s) -
+    a --nezkuseni/--vyhnout-se-pondeli se správně předají solveru."""
+    from db.cli import UROVNE_HLEDANI
+
+    cesta_db = tmp_path / "test.db"
+    _pridat_12_zamestnancu(cesta_db)
+    capsys.readouterr()
+
+    zachycene_kwargs = {}
+
+    def _falesny_generate_schedule(config, **kwargs):
+        zachycene_kwargs.update(kwargs)
+        zamestnanci = repo.aktivni_zamestnanci(repo.pripojit(cesta_db), date(2026, 8, 1))
+        return Schedule(
+            rok=2026, mesic=8, jmena=tuple(z.jmeno for z in zamestnanci),
+            smeny={}, status="OPTIMAL", cas_reseni=0.01,
+        )
+
+    monkeypatch.setattr("db.cli.generate_schedule", _falesny_generate_schedule)
+
+    main([
+        "--db", str(cesta_db), "generuj", "2026", "8",
+        "--uroven-hledani", "dukladne", "--nezkuseni", "Alena, Bedřich",
+        "--vyhnout-se-pondeli",
+    ])
+    capsys.readouterr()
+    assert zachycene_kwargs["time_limit_s"] == UROVNE_HLEDANI["dukladne"]
+    assert zachycene_kwargs["nezkuseni"] == ("Alena", "Bedřich")
+    assert zachycene_kwargs["vyhnout_se_pondeli"] is True
+
+    main(["--db", str(cesta_db), "generuj", "2026", "8"])
+    capsys.readouterr()
+    assert zachycene_kwargs["time_limit_s"] == UROVNE_HLEDANI["standardne"]
+    assert zachycene_kwargs["nezkuseni"] == ()
+    assert zachycene_kwargs["vyhnout_se_pondeli"] is False
 
 
 def test_cli_pridat_dvojici_zakazano_se_projevi_v_rozpisu(tmp_path, capsys):
@@ -262,7 +366,7 @@ def test_cli_generuj_vypise_preskocene_konflikty_se_zamcenou_smenou(tmp_path, ca
     # správně přečte a vypíše to, co ulozit_rozpis vrátí.
     konfliktni = Schedule(rok=2026, mesic=8, jmena=jmena, smeny={(jmeno, 1): "N"},
                            status="OPTIMAL", cas_reseni=0.05)
-    monkeypatch.setattr("db.cli.generate_schedule", lambda config: konfliktni)
+    monkeypatch.setattr("db.cli.generate_schedule", lambda config, **kwargs: konfliktni)
 
     main(["--db", str(cesta_db), "generuj", "2026", "8"])
     vystup = capsys.readouterr().out
