@@ -237,6 +237,37 @@ Konkréta pro tento server:
   riziko 2); a při první session se sudo ověřit root crontab
   (sudo crontab -l) a výsledek dopsat do DEPLOY.md
 
+### Úkol 11 — samoobslužná výměna směn (nahrazuje klikací úpravu v mřížce)
+Nápad z diskuze po úkolu 9b: veškerá "ruční úprava" je ve skutečnosti
+požadavek na výměnu, ne izolovaná úprava jedné buňky - a klikací cyklus
+přímo v mřížce (úkol 8/9) komplikuje layout (viz historie: CSS overflow
+u POZADAVEK, "prázdná buňka bez obsahu" bug, `zamcena` třída na `<td>`)
+a míchá dvě různé věci do jednoho mechanismu. NEIMPLEMENTOVAT rovnou -
+nejdřív rozhodnout otevřenou otázku níž.
+
+- Nová stránka MIMO mřížku (stejný vzor jako `/pozadavky`, ne klik do
+  tabulky): admin vybere zaměstnance A, den a jeho současnou směnu,
+  kterou chce uvolnit/změnit.
+- Systém spočítá a nabídne KANDIDÁTY: zaměstnanci volní ten den (nebo
+  s opačnou směnou), u kterých by výměna neporušila tvrdá pravidla
+  (N→D, max_v_rade, fond, nedostupnosti, zakázaná dvojice) - kontrola
+  per kandidát (ne celý solver běh), reuse logiky z
+  `solver/validace.py`. Nabídnou se JEN validní kandidáti.
+- Potvrzení výměny běží přes STÁVAJÍCÍ mechanismus úkolu 9: zamknout
+  minulost, nastavit obě směny, přegenerovat zbytek měsíce, ukázat diff
+  před uložením - žádná nová "přepočet" logika, jen nový vstupní bod
+  místo klikání do buňky.
+- Mřížka se zjednoduší na čistě READ-ONLY zobrazení (žádné klikací
+  buňky/tlačítka v tabulce, žádné "Povolit ruční úpravu" zatržítko) -
+  `POST /rozpis/bunka/...` z úkolu 9 se odstraní.
+- OTEVŘENÁ OTÁZKA (rozhodnout PŘED implementací): co když pro danou
+  směnu neexistuje žádný validní kandidát - jen informativní hláška
+  ("nikdo nemůže vyměnit"), nebo nabídnout krizový profil / výjimečné
+  přepsání i s porušením (jako dnes mřížka umí "ulož i tak")?
+- Testy: nabídka kandidátů vynechá lidi, kteří by porušili tvrdé
+  pravidlo; potvrzená výměna projde stejným diff/zamykáním jako úkol 9;
+  mřížka bez admin zápisových rout (čistě zobrazovací).
+
 ## Co záměrně NEDĚLAT
 - Žádný React/Vue/HTMX, Tailwind, Docker, async fronty, websockety
 - Žádný export/API směrem do Cygnusu — přepis je záměrně ruční
