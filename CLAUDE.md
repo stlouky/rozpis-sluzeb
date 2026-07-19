@@ -47,6 +47,6 @@ a odpracované směny, přegenerovat jen zbytek měsíce, ukázat diff.
 - [x] fáze 1: modul + YAML konfigurace + testy
 - [x] fáze 2: SQLite (db/) + správa zaměstnanců a nedostupností + most na solver
 - [x] fáze 5: PDF (A4 šířka, nástěnka) — vystup/pdf.py hotový vč. testů
+- [x] fáze 6: deploy (Hetzner, systemd + Caddy) — živé na rozpis-jstl.duckdns.org
 - [ ] fáze 3: FastAPI + login + barevná mřížka (žlutá D, modrá N, zelená DOV)
 - [ ] fáze 4: zamykání + přegenerování + diff
-- [ ] fáze 6: deploy (Hetzner, systemd + Caddy)
