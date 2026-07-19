@@ -205,6 +205,63 @@ ručního zadávání admin/CLI.
   bez sloupce stav (migrace) se chovají jako 'schvaleno' (staré testy
   beze změny).
 
+### Úkol 9c — self-service napříč typy + kalendářové widgety (revize Úkolu 9b)
+Revize po rozhovoru nad designovým konceptem (19.7.2026). Úkol 9b nechával
+self-service podání jen jako generický typ POZADAVEK. Reálný provozní
+scénář: nemoc/dovolená/zákaz nočních jdou stejnou self-service cestou pod
+svým SKUTEČNÝM typem (ne obecným "požadavek") - rozhoduje `stav`, ne typ
+ani kdo záznam založil (systém nepotřebuje sledovat "kdo podal", stejná
+zásada jako v Úkolu 9b). Kalendářové widgety navíc záměrně ukazují
+obsazenost dne VŠEM (i schválené položky zůstávají vidět), aby si lidé
+mohli podle toho upravit vlastní požadavky - viz mockupy níž.
+
+- Ověřeno v kódu: `db/bridge.py:config_pro_mesic` filtruje `stav ==
+  'schvaleno'` bez ohledu na typ už dnes - tahle část se nemění.
+  `pozadavky_vsechny()` (dnes `WHERE typ = 'POZADAVEK'`) a
+  `web/app.py:_pozadavek_nebo_404` (dnes `typ != "POZADAVEK"`) se
+  zobecní - viz níž.
+- `pridat_pozadavek(conn, zamestnanec_id, od, do, typ, popis,
+  zakazana_smena=None)` - `typ` přestává být napevno `'POZADAVEK'`,
+  přijímá se jako parametr (validace proti `TYPY_NEDOSTUPNOSTI`), zapisuje
+  `stav='podano'`. Admin/CLI cesta (`pridat_nedostupnost` přímo) zůstává
+  rovnou `stav='schvaleno'` jako dosud - 'podano' tak už ze své podstaty
+  může vzniknout jen přes self-service, žádný extra sloupec na
+  odlišení "kdo založil" není potřeba.
+- Kalendářové widgety (podání i admin správa) čerpají ze VŠECH
+  nedostupností daného měsíce (libovolný typ, libovolný stav) - obsazenost
+  dne = kolik lidí už má na ten den něco zapsáno (schválené i podané),
+  ať je vidět, než si někdo přidá vlastní požadavek na už nabitý den.
+- Akce schválit/zamítnout se nabízí jen u položek se `stav = 'podano'`.
+  `web/app.py:_pozadavek_nebo_404` mění kontrolu z `typ != "POZADAVEK"`
+  na `stav != "podano"` (schválit/zamítnout lze jen to, co čeká).
+  `pozadavky_vsechny` (přehled/kalendář) žádný typový ani jiný filtr
+  nepotřebuje - vrací všechno, řazení/zobrazení řeší šablona podle `stav`.
+- Formulář/widget "Podat požadavek" dostává výběr typu (DOV/NEM/OST/SVZ/
+  POZADAVEK) - select, ne psaní (personál preferuje klikání před
+  vyplňováním textu - jediné volné pole zůstává nepovinná poznámka).
+- Admin widget "Správa požadavků": tlačítko **"Schválit nekonfliktní"** -
+  hromadně schválí všechny `stav='podano'` položky (v zobrazeném měsíci,
+  příp. jen vybraný den), které by neporušily minimální obsazenost
+  (`nastaveni.denni_min`/`nocni_min` pro aktivní profil) - reuse stejného
+  výpočtu dostupnosti, co barví kalendář (riziko podkročení minima).
+  Konfliktní položky (ohrozily by minimum) přeskočí, zůstanou 'podano'
+  k ručnímu rozhodnutí.
+- UI: kalendářové widgety místo tabulky/prostého formuláře - "Podat
+  požadavek" (dny obarvené podle počtu už podaných požadavků, klik
+  vybere den, detail kdo už na ten den žádá) a admin "Správa požadavků"
+  (kalendář, barevné odlišení rizika podkročení minima, inline
+  schválit/zamítnout + "Schválit nekonfliktní"). Obojí žije POD mřížkou
+  na `/rozpis`, skryté za zatržítkem "zobraz požadavky" - žádná
+  samostatná stránka, žádné menu.
+  Orientační mockupy (skutečné typy/barvy se doladí podle schématu):
+  `widget_podat_pozadavek_kalendar.html`, `widget_pozadavky_admin_kalendar.html`.
+- Testy: `test_pozadavky_vsechny_vraci_jen_typ_pozadavek` (test_db.py) a
+  navazující v test_cli.py/test_web_pozadavky.py se přepíšou - self-service
+  DOV/NEM/OST/SVZ projde stejným schvalovacím workflow jako dřív jen
+  POZADAVEK; admin přímý zápis (CLI/formulář) zůstává rovnou 'schvaleno'
+  bez ohledu na typ; "Schválit nekonfliktní" vynechá položky pod minimem;
+  schválit/zamítnout na položce, co už není 'podano', vrátí chybu.
+
 ### Úkol 10 — deploy na Hetzner (až funguje 1–9 lokálně)
 Řídí se souborem DEPLOY.md (průzkum serveru 17.7.2026 — Caddy 2.6.2,
 rbscanner na 127.0.0.1:8080, Python 3.13, port 8081 volný).
