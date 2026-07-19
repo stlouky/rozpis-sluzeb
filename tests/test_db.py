@@ -1148,11 +1148,14 @@ def test_schvalit_pozadavek(conn):
 
 
 def test_zamitnout_pozadavek(conn):
+    # Na rozdíl od schválení zamítnutí záznam rovnou maže (žádný stav
+    # 'zamitnuto' v DB) - ať se admin v přehledu požadavků neprokousává
+    # dlouhým seznamem odmítnutého.
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     poz_id = repo.pridat_pozadavek(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "popis")
 
     repo.zamitnout_pozadavek(conn, poz_id)
-    assert repo.nedostupnost_podle_id(conn, poz_id).stav == "zamitnuto"
+    assert repo.nedostupnost_podle_id(conn, poz_id) is None
 
 
 def test_pridat_pozadavek_s_typem_nem_ma_stav_podano(conn):

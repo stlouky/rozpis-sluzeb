@@ -358,7 +358,11 @@ def schvalit_pozadavek(conn: sqlite3.Connection, pozadavek_id: int) -> None:
 
 
 def zamitnout_pozadavek(conn: sqlite3.Connection, pozadavek_id: int) -> None:
-    conn.execute("UPDATE nedostupnost SET stav = 'zamitnuto' WHERE id = ?", (pozadavek_id,))
+    """Na rozdíl od schválení (jen změna stavu) zamítnutí záznam rovnou
+    maže - žádný audit trail stavu 'zamitnuto' (na přání, ať se admin
+    v přehledu požadavků nemusí prokousávat dlouhým seznamem odmítnutého,
+    viz diskuze k úkolu 9d)."""
+    conn.execute("DELETE FROM nedostupnost WHERE id = ?", (pozadavek_id,))
     conn.commit()
 
 

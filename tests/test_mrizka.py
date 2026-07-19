@@ -325,15 +325,17 @@ def test_widget_ukazuje_polozky_bez_ohledu_na_typ_a_stav(conn):
     assert {p.typ_nazev for p in den5.polozky} == {"Dovolená", "Nemoc"}
 
 
-def test_widget_nepocita_zamitnute_do_obsazenosti(conn):
+def test_widget_po_zamitnuti_den_vypada_volny(conn):
+    # Zamítnutí záznam maže (žádný audit trail) - den se ve widgetu
+    # vrátí do stavu, jako by požadavek nikdy nebyl podán.
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     poz_id = repo.pridat_pozadavek(conn, id_, date(2026, 8, 5), date(2026, 8, 5), "x")
     repo.zamitnout_pozadavek(conn, poz_id)
 
     dny = sestavit_pozadavky_widget(conn, 2026, 8)
     den5 = dny[4]
-    assert len(den5.polozky) == 1  # pořád vidět v přehledu
-    assert den5.volnych_pri_schvaleni == 1  # ale nesnižuje dostupnost
+    assert len(den5.polozky) == 0
+    assert den5.volnych_pri_schvaleni == 1
 
 
 def test_widget_castecny_den_nesnizuje_dostupnost(conn):
@@ -441,11 +443,16 @@ def test_admin_ma_navigaci_na_jiny_mesic(klient):
 
 # --- widgety požadavků pod mřížkou (úkol 9d) ---
 
-def test_nahled_vidi_widget_podat_pozadavek_ale_ne_spravu(klient):
+def test_nahled_vidi_prehled_pozadavku_ale_ne_hromadne_schvaleni(klient):
+    # úkol 9d rozšíření: nahled vidí read-only "Přehled požadavků" (stejný
+    # kalendář jako admin), jen bez tlačítka na hromadné schválení -
+    # jednotlivé schválit/zamítnout formuláře se navíc renderují až v JS
+    # podle JE_ADMIN, takže v syrovém HTML nejsou ani pro admina.
     _prihlasit(klient, "nahled", "tajneheslo2")
     odpoved = klient.get("/rozpis?mesic=2026-08")
     assert 'id="kalendar-podat"' in odpoved.text
-    assert 'id="kalendar-sprava"' not in odpoved.text
+    assert 'id="kalendar-sprava"' in odpoved.text
+    assert "Přehled požadavků" in odpoved.text
     assert "Schválit nekonfliktní" not in odpoved.text
 
 

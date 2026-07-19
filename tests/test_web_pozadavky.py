@@ -140,13 +140,14 @@ def test_admin_smi_schvalit_pozadavek(klient):
 
 
 def test_admin_smi_zamitnout_pozadavek(klient):
+    # Zamítnutí záznam rovnou maže (žádný audit trail stavu 'zamitnuto').
     conn = _conn(klient)
     poz_id = repo.pridat_pozadavek(conn, klient.id_alena, date(2026, 8, 3), date(2026, 8, 4), "x")
     conn.close()
 
     odpoved = klient.post(f"/pozadavky/{poz_id}/zamitnout")
     assert odpoved.status_code == 200
-    assert repo.nedostupnost_podle_id(_conn(klient), poz_id).stav == "zamitnuto"
+    assert repo.nedostupnost_podle_id(_conn(klient), poz_id) is None
 
 
 def test_schvalit_neexistujiciho_pozadavku_404(klient):

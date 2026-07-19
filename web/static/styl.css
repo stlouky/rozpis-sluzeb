@@ -885,6 +885,16 @@ table.mrizka tfoot .radek-obsazeni td.porusena {
     border-radius: 6px;
   }
 
+  /* Na úzkém displeji zabíral sticky sloupec se jmény (15rem) tolik
+     místa, že bylo vidět jen ~3 sloupce dnů - radši ať se jména
+     posouvají spolu se zbytkem tabulky, ať je při scrollování vidět
+     víc dnů najednou (na přání - přehled nad víc dny je důležitější
+     než jméno pořád na očích). */
+  table.mrizka .sloupec-jmeno {
+    position: static;
+    width: 7rem;
+  }
+
   .legenda {
     font-size: 0.78rem;
     padding: 0.6rem 0.8rem;
