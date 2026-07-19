@@ -192,24 +192,30 @@
       </form>
     </section>
 
-    {% if je_admin %}
-      <section class="widget-pozadavek" aria-labelledby="nadpis-sprava-pozadavku">
-        <div class="pozadavky-sprava-hlavicka">
-          <h2 id="nadpis-sprava-pozadavku">Správa požadavků</h2>
+    <section class="widget-pozadavek" aria-labelledby="nadpis-sprava-pozadavku">
+      <div class="pozadavky-sprava-hlavicka">
+        <h2 id="nadpis-sprava-pozadavku">{% if je_admin %}Správa požadavků{% else %}Přehled požadavků{% endif %}</h2>
+        {% if je_admin %}
           <form method="post" action="/rozpis/pozadavky/schvalit-nekonfliktni">
             <input type="hidden" name="mesic" value="{{ mesic_str }}">
             <button type="submit">Schválit nekonfliktní</button>
           </form>
-        </div>
-        <div class="pozadavky-kalendar" id="kalendar-sprava"></div>
-        <p class="pozadavky-legenda">
-          <span class="pozadavky-znacka ma-pozadavky"></span>čeká na rozhodnutí
-          <span class="pozadavky-znacka riziko"></span>riziko podkročení minima
-          <span class="pozadavky-znacka vyrizeno"></span>vyřízeno
-        </p>
-        <div class="pozadavky-detail" id="detail-sprava">Klikni na den s požadavky - uvidíš dopad na obsazenost a můžeš rovnou schválit nebo zamítnout.</div>
-      </section>
-    {% endif %}
+        {% endif %}
+      </div>
+      <div class="pozadavky-kalendar" id="kalendar-sprava"></div>
+      <p class="pozadavky-legenda">
+        <span class="pozadavky-znacka ma-pozadavky"></span>čeká na rozhodnutí
+        <span class="pozadavky-znacka riziko"></span>riziko podkročení minima
+        <span class="pozadavky-znacka vyrizeno"></span>vyřízeno
+      </p>
+      <div class="pozadavky-detail" id="detail-sprava">
+        {% if je_admin %}
+          Klikni na den s požadavky - uvidíš dopad na obsazenost a můžeš rovnou schválit nebo zamítnout.
+        {% else %}
+          Klikni na den s požadavky - uvidíš, kdo už má na ten den podaný požadavek, ať si můžeš svůj naplánovat.
+        {% endif %}
+      </div>
+    </section>
   </div>
 </main>
 {% if je_admin %}
@@ -267,6 +273,7 @@
   (function () {
     var ROK = {{ mrizka.rok }};
     var MESIC = {{ mrizka.mesic }};
+    var JE_ADMIN = {{ 'true' if je_admin else 'false' }};
     var POZADAVKY_DATA = {{ pozadavky_widget_json|safe }};
     var DNY_ZKRATKY = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
 
@@ -370,7 +377,7 @@
         var dataDne = POZADAVKY_DATA[den - 1];
         var radky = dataDne.polozky.map(function (p) {
           var akce = "";
-          if (p.stav === "podano") {
+          if (JE_ADMIN && p.stav === "podano") {
             akce =
               '<form method="post" action="/pozadavky/' + p.id + '/schvalit" class="pozadavek-akce-forma">' +
                 '<input type="hidden" name="navrat" value="' + NAVRAT + '">' +
