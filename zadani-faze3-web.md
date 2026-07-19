@@ -205,7 +205,7 @@ ručního zadávání admin/CLI.
   bez sloupce stav (migrace) se chovají jako 'schvaleno' (staré testy
   beze změny).
 
-### Úkol 9c — self-service napříč typy + kalendářové widgety (revize Úkolu 9b)
+### Úkol 9d — self-service napříč typy + kalendářové widgety (revize Úkolu 9b)
 Revize po rozhovoru nad designovým konceptem (19.7.2026). Úkol 9b nechával
 self-service podání jen jako generický typ POZADAVEK. Reálný provozní
 scénář: nemoc/dovolená/zákaz nočních jdou stejnou self-service cestou pod

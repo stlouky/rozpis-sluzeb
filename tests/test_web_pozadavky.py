@@ -78,7 +78,7 @@ def test_podani_pozadavku_neexistujiciho_zamestnance_404(klient):
 
 
 def test_podani_pozadavku_se_skutecnym_typem(klient):
-    # úkol 9c: self-service smí zakládat skutečné typy (NEM/DOV/...), ne
+    # úkol 9d: self-service smí zakládat skutečné typy (NEM/DOV/...), ne
     # jen obecný POZADAVEK.
     data = _pozadavek_data(klient)
     data["typ"] = "NEM"
@@ -154,7 +154,7 @@ def test_schvalit_neexistujiciho_pozadavku_404(klient):
 
 
 def test_schvalit_uz_vyrizeneho_pozadavku_404(klient):
-    # úkol 9c: guard kontroluje stav='podano', ne typ - jednou vyřízené
+    # úkol 9d: guard kontroluje stav='podano', ne typ - jednou vyřízené
     # (nebo běžný admin záznam, co nikdy 'podano' nebylo) se přes tuhle
     # routu znovu sáhnout nedá.
     conn = _conn(klient)
@@ -172,3 +172,64 @@ def test_schvalit_beznou_admin_nedostupnost_404(klient):
     conn.close()
 
     assert klient.post(f"/pozadavky/{ned_id}/schvalit").status_code == 404
+
+
+# --- navrat (úkol 9d: widgety na /rozpis, ne na samostatné stránce) ---
+
+def test_podani_pozadavku_se_vraci_na_navrat(klient):
+    data = _pozadavek_data(klient)
+    data["navrat"] = "/rozpis?mesic=2026-08"
+    odpoved = klient.post("/pozadavky", data=data, follow_redirects=False)
+    assert odpoved.status_code == 303
+    assert odpoved.headers["location"] == "/rozpis?mesic=2026-08"
+
+
+def test_podani_pozadavku_bez_navrat_jde_na_pozadavky(klient):
+    odpoved = klient.post("/pozadavky", data=_pozadavek_data(klient), follow_redirects=False)
+    assert odpoved.headers["location"] == "/pozadavky"
+
+
+def test_podani_pozadavku_odmitne_cizi_navrat(klient):
+    # ochrana proti open-redirectu - "//" je protokol-relativní adresa,
+    # mohla by vést mimo appku, i když vypadá jako cesta.
+    data = _pozadavek_data(klient)
+    data["navrat"] = "//zlyweb.example/phishing"
+    odpoved = klient.post("/pozadavky", data=data, follow_redirects=False)
+    assert odpoved.headers["location"] == "/pozadavky"
+
+
+def test_schvalit_pozadavek_se_vraci_na_navrat(klient):
+    conn = _conn(klient)
+    poz_id = repo.pridat_pozadavek(conn, klient.id_alena, date(2026, 8, 3), date(2026, 8, 4), "x")
+    conn.close()
+
+    odpoved = klient.post(
+        f"/pozadavky/{poz_id}/schvalit",
+        data={"navrat": "/rozpis?mesic=2026-08"},
+        follow_redirects=False,
+    )
+    assert odpoved.headers["location"] == "/rozpis?mesic=2026-08"
+
+
+# --- hromadné schválení nekonfliktních (úkol 9d) ---
+
+def test_schvalit_nekonfliktni_z_widgetu(klient):
+    conn = _conn(klient)
+    poz_id = repo.pridat_pozadavek(conn, klient.id_alena, date(2026, 8, 5), date(2026, 8, 5), "x")
+    conn.close()
+
+    odpoved = klient.post(
+        "/rozpis/pozadavky/schvalit-nekonfliktni",
+        data={"mesic": "2026-08"},
+        follow_redirects=False,
+    )
+    assert odpoved.status_code == 303
+    assert odpoved.headers["location"] == "/rozpis?mesic=2026-08"
+    assert repo.nedostupnost_podle_id(_conn(klient), poz_id).stav == "schvaleno"
+
+
+def test_schvalit_nekonfliktni_dostane_403_pro_nahled(klient_nahled):
+    odpoved = klient_nahled.post(
+        "/rozpis/pozadavky/schvalit-nekonfliktni", data={"mesic": "2026-08"}
+    )
+    assert odpoved.status_code == 403

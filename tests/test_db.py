@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 
 from db import repository as repo
-from db.bridge import config_pro_mesic, schedule_z_db, souhrn_vstupu
+from db.bridge import config_pro_mesic, schedule_z_db, schvalit_nekonfliktni, souhrn_vstupu
 from db.models import NastaveniProfilu
 from solver.core import generate_schedule
 from solver.schedule import Schedule
@@ -1156,7 +1156,7 @@ def test_zamitnout_pozadavek(conn):
 
 
 def test_pridat_pozadavek_s_typem_nem_ma_stav_podano(conn):
-    # úkol 9c: self-service smí zakládat skutečné typy, ne jen POZADAVEK -
+    # úkol 9d: self-service smí zakládat skutečné typy, ne jen POZADAVEK -
     # rozhoduje stav, ne typ.
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
     poz_id = repo.pridat_pozadavek(
@@ -1423,3 +1423,74 @@ def test_zmena_nastaveni_se_propise_do_generovani(conn):
         pocet_d, pocet_n = schedule.obsazeni_dne(den)
         assert pocet_d == 2
         assert pocet_n == 1
+
+
+# --- schvalit_nekonfliktni (úkol 9d: hromadné schválení, widget Správa požadavků) ---
+
+def _nastaveni_min2(profil="normalni"):
+    # minimum = denni_min + nocni_min = 2, se 3 zaměstnanci tak smí
+    # jeden den chybět nejvýš jeden člověk.
+    return NastaveniProfilu(
+        profil=profil, denni_min=1, denni_max=2, nocni_min=1, nocni_max=2,
+        max_v_rade=3, max_smen_mesic=16,
+    )
+
+
+def _tri_zamestnanci(conn):
+    return [repo.pridat_zamestnance(conn, jmeno, date(2020, 1, 1)) for jmeno in ["Alena", "Bara", "Cyril"]]
+
+
+def test_schvalit_nekonfliktni_schvali_nekonfliktni_pozadavek(conn):
+    alena, _, _ = _tri_zamestnanci(conn)
+    repo.ulozit_nastaveni(conn, _nastaveni_min2())
+    poz_id = repo.pridat_pozadavek(conn, alena, date(2026, 8, 5), date(2026, 8, 5), "x")
+
+    schvaleno = schvalit_nekonfliktni(conn, 2026, 8)
+
+    assert schvaleno == [poz_id]
+    assert repo.nedostupnost_podle_id(conn, poz_id).stav == "schvaleno"
+
+
+def test_schvalit_nekonfliktni_preskoci_konfliktni_pozadavek(conn):
+    alena, bara, cyril = _tri_zamestnanci(conn)
+    repo.ulozit_nastaveni(conn, _nastaveni_min2())
+    # Bara a Cyril už mají 5.8. schválenou celodenní nedostupnost -
+    # schválením Aleny by dostupnost klesla pod minimum (2).
+    repo.pridat_nedostupnost(conn, bara, date(2026, 8, 5), date(2026, 8, 5), "DOV")
+    repo.pridat_nedostupnost(conn, cyril, date(2026, 8, 5), date(2026, 8, 5), "DOV")
+    poz_id = repo.pridat_pozadavek(conn, alena, date(2026, 8, 5), date(2026, 8, 5), "x")
+
+    schvaleno = schvalit_nekonfliktni(conn, 2026, 8)
+
+    assert schvaleno == []
+    assert repo.nedostupnost_podle_id(conn, poz_id).stav == "podano"
+
+
+def test_schvalit_nekonfliktni_castecny_den_schvali_bez_kontroly(conn):
+    alena, bara, cyril = _tri_zamestnanci(conn)
+    repo.ulozit_nastaveni(conn, _nastaveni_min2())
+    repo.pridat_nedostupnost(conn, bara, date(2026, 8, 5), date(2026, 8, 5), "DOV")
+    repo.pridat_nedostupnost(conn, cyril, date(2026, 8, 5), date(2026, 8, 5), "DOV")
+    poz_id = repo.pridat_pozadavek(
+        conn, alena, date(2026, 8, 5), date(2026, 8, 5), "x", zakazana_smena="N"
+    )
+
+    schvaleno = schvalit_nekonfliktni(conn, 2026, 8)
+
+    assert schvaleno == [poz_id]
+    assert repo.nedostupnost_podle_id(conn, poz_id).stav == "schvaleno"
+
+
+def test_schvalit_nekonfliktni_vicedenni_pozadavek_jen_projde_li_na_vsech_dnech(conn):
+    alena, bara, cyril = _tri_zamestnanci(conn)
+    repo.ulozit_nastaveni(conn, _nastaveni_min2())
+    # 6.8. jsou Bara i Cyril mimo - kdyby se počítal jen 5.8. (kde by
+    # samotný den prošel), požadavek by se schválil neprávem.
+    repo.pridat_nedostupnost(conn, bara, date(2026, 8, 6), date(2026, 8, 6), "DOV")
+    repo.pridat_nedostupnost(conn, cyril, date(2026, 8, 6), date(2026, 8, 6), "DOV")
+    poz_id = repo.pridat_pozadavek(conn, alena, date(2026, 8, 5), date(2026, 8, 6), "x")
+
+    schvaleno = schvalit_nekonfliktni(conn, 2026, 8)
+
+    assert schvaleno == []
+    assert repo.nedostupnost_podle_id(conn, poz_id).stav == "podano"

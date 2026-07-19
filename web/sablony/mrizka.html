@@ -147,6 +147,70 @@
       Nedostupnosti, ať se omylem nezkrátí.
     </p>
   {% endif %}
+
+  <p class="pozadavky-prepinac">
+    <label>
+      <input type="checkbox" id="chk-zobraz-pozadavky">
+      Zobrazit požadavky
+    </label>
+  </p>
+
+  <div id="pozadavky-widgety" class="pozadavky-widgety skryto">
+    <section class="widget-pozadavek" aria-labelledby="nadpis-podat-pozadavek">
+      <h2 id="nadpis-podat-pozadavek">Podat požadavek</h2>
+      <form method="post" action="/pozadavky" id="form-podat-pozadavek">
+        <input type="hidden" name="navrat" value="/rozpis?mesic={{ mesic_str }}">
+        <input type="hidden" name="od" id="pole-pozadavek-od">
+        <input type="hidden" name="do" id="pole-pozadavek-do">
+        <div class="pozadavek-vyber-radek">
+          <label>Za koho
+            <select name="zamestnanec_id" required>
+              {% for z in pozadavky_zamestnanci %}
+                <option value="{{ z.id }}">{{ z.jmeno }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Typ
+            <select name="typ" required>
+              {% for kod, nazev in pozadavky_typy.items() %}
+                <option value="{{ kod }}">{{ nazev }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div class="pozadavky-kalendar" id="kalendar-podat"></div>
+        <p class="pozadavky-legenda">
+          <span class="pozadavky-znacka volno"></span>volno
+          <span class="pozadavky-znacka ma-pozadavky"></span>obsazeno
+          <span class="pozadavky-znacka vybrano"></span>vybráno
+        </p>
+        <div class="pozadavky-detail" id="detail-podat">Klikni na den v kalendáři - první klik začátek, druhý konec rozsahu (stejný den = jednodenní).</div>
+        <label>Poznámka (nepovinné)
+          <input type="text" name="popis" maxlength="200">
+        </label>
+        <button type="submit" id="btn-podat-pozadavek" disabled>Podat požadavek</button>
+      </form>
+    </section>
+
+    {% if je_admin %}
+      <section class="widget-pozadavek" aria-labelledby="nadpis-sprava-pozadavku">
+        <div class="pozadavky-sprava-hlavicka">
+          <h2 id="nadpis-sprava-pozadavku">Správa požadavků</h2>
+          <form method="post" action="/rozpis/pozadavky/schvalit-nekonfliktni">
+            <input type="hidden" name="mesic" value="{{ mesic_str }}">
+            <button type="submit">Schválit nekonfliktní</button>
+          </form>
+        </div>
+        <div class="pozadavky-kalendar" id="kalendar-sprava"></div>
+        <p class="pozadavky-legenda">
+          <span class="pozadavky-znacka ma-pozadavky"></span>čeká na rozhodnutí
+          <span class="pozadavky-znacka riziko"></span>riziko podkročení minima
+          <span class="pozadavky-znacka vyrizeno"></span>vyřízeno
+        </p>
+        <div class="pozadavky-detail" id="detail-sprava">Klikni na den s požadavky - uvidíš dopad na obsazenost a můžeš rovnou schválit nebo zamítnout.</div>
+      </section>
+    {% endif %}
+  </div>
 </main>
 {% if je_admin %}
 <script>
@@ -194,4 +258,159 @@
   });
 </script>
 {% endif %}
+<script>
+  // Kalendářové widgety požadavků (úkol 9d) - na rozdíl od zbytku appky
+  // (server-side rendering) se kreslí v JS: potřebují živou interakci
+  // (výběr rozsahu klikem, detail dne) bez odeslání na server při
+  // každém kliku. Dostupné OBĚMA rolím (na rozdíl od ruční úpravy výš),
+  // proto mimo {% raw %}{% if je_admin %}{% endraw %} blok.
+  (function () {
+    var ROK = {{ mrizka.rok }};
+    var MESIC = {{ mrizka.mesic }};
+    var POZADAVKY_DATA = {{ pozadavky_widget_json|safe }};
+    var DNY_ZKRATKY = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
+
+    function escHtml(s) {
+      var d = document.createElement("div");
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    function formatDatum(den) {
+      return ROK + "-" + String(MESIC).padStart(2, "0") + "-" + String(den).padStart(2, "0");
+    }
+
+    // 7-sloupcová mřížka dnů měsíce. vykresliBunku(den, dataDne) vrací
+    // {trida}, klikNaDen(den) se zavolá po kliknutí (nepovinné). Vrátí
+    // mapu den -> DOM element (kvůli přebarvení po výběru).
+    function vykreslitKalendar(kontejner, vykresliBunku, klikNaDen) {
+      kontejner.innerHTML = "";
+      DNY_ZKRATKY.forEach(function (zkr) {
+        var h = document.createElement("div");
+        h.className = "kalendar-hlavicka-dne";
+        h.textContent = zkr;
+        kontejner.appendChild(h);
+      });
+      var prvniDenTydne = (new Date(ROK, MESIC - 1, 1).getDay() + 6) % 7; // 0 = pondělí
+      for (var i = 0; i < prvniDenTydne; i++) {
+        kontejner.appendChild(document.createElement("div"));
+      }
+      var bunky = {};
+      var pocetDni = POZADAVKY_DATA.length;
+      var _loop = function (den) {
+        var dataDne = POZADAVKY_DATA[den - 1];
+        var popis = vykresliBunku(den, dataDne);
+        var bunka = document.createElement("button");
+        bunka.type = "button";
+        bunka.className = "kalendar-den " + popis.trida;
+        bunka.innerHTML = '<span class="kalendar-cislo-dne">' + den + "</span>";
+        bunka.setAttribute(
+          "aria-label", den + ". " + MESIC + " - " + dataDne.polozky.length + " položek"
+        );
+        if (klikNaDen) {
+          bunka.addEventListener("click", function () { klikNaDen(den); });
+        }
+        kontejner.appendChild(bunka);
+        bunky[den] = bunka;
+      };
+      for (var den = 1; den <= pocetDni; den++) { _loop(den); }
+      return bunky;
+    }
+
+    // --- "Podat požadavek" (obě role) ---
+    var kalendarPodat = document.getElementById("kalendar-podat");
+    if (kalendarPodat) {
+      var vyberOd = null, vyberDo = null;
+      var poleOd = document.getElementById("pole-pozadavek-od");
+      var poleDo = document.getElementById("pole-pozadavek-do");
+      var tlacitkoPodat = document.getElementById("btn-podat-pozadavek");
+      var detailPodat = document.getElementById("detail-podat");
+
+      var bunkyPodat = vykreslitKalendar(kalendarPodat, function (den, dataDne) {
+        return { trida: dataDne.polozky.length > 0 ? "ma-pozadavky" : "volno" };
+      }, function (den) {
+        if (vyberOd === null || vyberDo !== null) {
+          vyberOd = den; vyberDo = null;
+        } else if (den < vyberOd) {
+          vyberDo = vyberOd; vyberOd = den;
+        } else {
+          vyberDo = den;
+        }
+        prekreslitVyberPodat();
+      });
+
+      function prekreslitVyberPodat() {
+        var konec = vyberDo === null ? vyberOd : vyberDo;
+        Object.keys(bunkyPodat).forEach(function (d) {
+          d = Number(d);
+          var vDosahu = vyberOd !== null && d >= Math.min(vyberOd, konec) && d <= Math.max(vyberOd, konec);
+          bunkyPodat[d].classList.toggle("vybrano", vDosahu);
+        });
+        poleOd.value = vyberOd === null ? "" : formatDatum(Math.min(vyberOd, konec));
+        poleDo.value = vyberOd === null ? "" : formatDatum(Math.max(vyberOd, konec));
+        tlacitkoPodat.disabled = vyberOd === null;
+        if (vyberOd === null) {
+          detailPodat.textContent = "Klikni na den v kalendáři - první klik začátek, druhý konec rozsahu (stejný den = jednodenní).";
+        } else {
+          var od = Math.min(vyberOd, konec), doDen = Math.max(vyberOd, konec);
+          detailPodat.textContent = od === doDen
+            ? ("Vybráno: " + od + ". " + MESIC + ".")
+            : ("Vybráno: " + od + ". - " + doDen + ". " + MESIC + ".");
+        }
+      }
+    }
+
+    // --- "Správa požadavků" (jen admin) ---
+    var kalendarSprava = document.getElementById("kalendar-sprava");
+    if (kalendarSprava) {
+      var detailSprava = document.getElementById("detail-sprava");
+      var NAVRAT = "/rozpis?mesic={{ mesic_str }}";
+
+      function vykresliDetailSpravy(den) {
+        var dataDne = POZADAVKY_DATA[den - 1];
+        var radky = dataDne.polozky.map(function (p) {
+          var akce = "";
+          if (p.stav === "podano") {
+            akce =
+              '<form method="post" action="/pozadavky/' + p.id + '/schvalit" class="pozadavek-akce-forma">' +
+                '<input type="hidden" name="navrat" value="' + NAVRAT + '">' +
+                '<button type="submit">schválit</button>' +
+              "</form>" +
+              '<form method="post" action="/pozadavky/' + p.id + '/zamitnout" class="pozadavek-akce-forma">' +
+                '<input type="hidden" name="navrat" value="' + NAVRAT + '">' +
+                '<button type="submit">zamítnout</button>' +
+              "</form>";
+          }
+          return (
+            '<div class="pozadavek-radek">' +
+              "<span>" + escHtml(p.jmeno) + " &middot; " + escHtml(p.typ_nazev) +
+              ' <span class="stav-pozadavku stav-' + p.stav + '">' + escHtml(p.stav) + "</span></span>" +
+              akce +
+            "</div>"
+          );
+        }).join("");
+        detailSprava.innerHTML =
+          "<div>" + den + ". " + MESIC + ". &mdash; dostupných " + dataDne.volnych_pri_schvaleni +
+          " (min " + dataDne.minimum + ")</div>" + (radky || "<div>Bez požadavků.</div>");
+      }
+
+      vykreslitKalendar(kalendarSprava, function (den, dataDne) {
+        if (dataDne.riziko) return { trida: "riziko" };
+        var cekaji = dataDne.polozky.some(function (p) { return p.stav === "podano"; });
+        if (cekaji) return { trida: "ma-pozadavky" };
+        return { trida: dataDne.polozky.length > 0 ? "vyrizeno" : "volno" };
+      }, function (den) {
+        vykresliDetailSpravy(den);
+      });
+    }
+
+    // --- zatržítko "Zobrazit požadavky" - jen skrýt/zobrazit, žádná
+    // navigace (viz zadani-faze3-web.md, úkol 9d: "žádné menu"). ---
+    var chkZobrazPozadavky = document.getElementById("chk-zobraz-pozadavky");
+    var divWidgety = document.getElementById("pozadavky-widgety");
+    chkZobrazPozadavky.addEventListener("change", function () {
+      divWidgety.classList.toggle("skryto", !chkZobrazPozadavky.checked);
+    });
+  })();
+</script>
 {% endblock %}

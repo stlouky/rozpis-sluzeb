@@ -229,6 +229,65 @@ def souhrn_vstupu(conn: sqlite3.Connection, rok: int, mesic: int) -> tuple[int, 
     return pocet_zamestnancu, pocet_nedostupnosti
 
 
+def schvalit_nekonfliktni(
+    conn: sqlite3.Connection, rok: int, mesic: int, profil: str = "normalni"
+) -> list[int]:
+    """Hromadně schválí všechny čekající (stav='podano') požadavky daného
+    měsíce, které by neporušily orientační minimum (denni_min+nocni_min
+    aktivního profilu) - úkol 9d, tlačítko "Schválit nekonfliktní" ve
+    widgetu Správa požadavků. Je to heuristika (celodenní blokace vs.
+    společný práh, ne skutečný běh solveru): schválení dne beze zbytku
+    neznamená, že (pře)generování uspěje, jen že orientačně neklesne
+    dostupnost pod práh. Konfliktní položky přeskočí, zůstanou 'podano'.
+
+    Položky s zakazana_smena (částečný den, např. "zákaz nočních")
+    celkovou dostupnost nesnižují - schválí se vždy bez kontroly.
+    Vícedenní požadavek se schválí, jen když projde na VŠECH svých dnech.
+    Vrátí seznam id schválených požadavků."""
+    prvni_den = date(rok, mesic, 1)
+    posledni_den = date(rok, mesic, calendar.monthrange(rok, mesic)[1])
+    nastaveni = repo.nastaveni_pro_profil(conn, profil)
+    minimum = (nastaveni.denni_min + nastaveni.nocni_min) if nastaveni else 0
+    celkem = len(repo.aktivni_zamestnanci_v_obdobi(conn, prvni_den, posledni_den))
+
+    vsechny = repo.nedostupnosti_v_obdobi(conn, prvni_den, posledni_den)
+    blokovano: dict[date, set[int]] = {}
+    for n in vsechny:
+        if n.stav != "schvaleno" or n.zakazana_smena is not None:
+            continue
+        for den in dny_v_mesici(n.od, n.do, prvni_den, posledni_den):
+            blokovano.setdefault(date(rok, mesic, den), set()).add(n.zamestnanec_id)
+
+    schvaleno_ids: list[int] = []
+    for n in vsechny:
+        if n.stav != "podano":
+            continue
+        if n.zakazana_smena is not None:
+            repo.schvalit_pozadavek(conn, n.id)
+            schvaleno_ids.append(n.id)
+            continue
+
+        dny = dny_v_mesici(n.od, n.do, prvni_den, posledni_den)
+        neprosel = False
+        for den in dny:
+            datum = date(rok, mesic, den)
+            blok = blokovano.get(datum, set())
+            if n.zamestnanec_id in blok:
+                continue  # už tak nedostupný jiným záznamem, schválení nic nezmění
+            if celkem - len(blok) - 1 < minimum:
+                neprosel = True
+                break
+        if neprosel:
+            continue
+
+        for den in dny:
+            blokovano.setdefault(date(rok, mesic, den), set()).add(n.zamestnanec_id)
+        repo.schvalit_pozadavek(conn, n.id)
+        schvaleno_ids.append(n.id)
+
+    return schvaleno_ids
+
+
 def schedule_z_db(conn: sqlite3.Connection, rok: int, mesic: int) -> Schedule:
     """Sestaví Schedule (solver/schedule.py) z uložených směn v DB - pro
     zobrazení (web mřížka úkol 3, přepis do Cygnusu úkol 7), ať se

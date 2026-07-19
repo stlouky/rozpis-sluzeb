@@ -273,3 +273,83 @@ def sestavit_mrizku(conn: sqlite3.Connection, rok: int, mesic: int, je_admin: bo
         krizove_dny=krizove_dny,
         dny_s_porusenim=[d in poruseni_dne for d in dny],
     )
+
+
+# --- kalendářové widgety požadavků (úkol 9d) ---
+
+
+@dataclass(frozen=True)
+class PolozkaPozadavku:
+    id: int
+    zamestnanec_id: int
+    jmeno: str
+    typ_nazev: str
+    stav: str  # 'podano' | 'schvaleno' | 'zamitnuto'
+
+
+@dataclass(frozen=True)
+class DenPozadavku:
+    den: int
+    polozky: list[PolozkaPozadavku]
+    # Aktivní zaměstnanci bez celodenní nedostupnosti, počítáno včetně
+    # čekajících (jako kdyby se všechno schválilo) - orientační, ne
+    # záruka (viz db.bridge.schvalit_nekonfliktni, stejná heuristika).
+    volnych_pri_schvaleni: int
+    minimum: int  # denni_min + nocni_min aktivního profilu
+    riziko: bool  # volnych_pri_schvaleni < minimum
+
+
+def sestavit_pozadavky_widget(
+    conn: sqlite3.Connection, rok: int, mesic: int, profil: str = "normalni"
+) -> list[DenPozadavku]:
+    """Data pro widgety "Podat požadavek" a "Správa požadavků" (úkol 9d)
+    - obsazenost dne napříč VŠEMI typy a stavy nedostupnosti (ne jen
+    self-service), ať je vidět, než si někdo přidá vlastní požadavek na
+    už nabitý den. Nejnovější položky v rámci dne nahoře (podle id)."""
+    prvni_den = date(rok, mesic, 1)
+    posledni_den = date(rok, mesic, calendar.monthrange(rok, mesic)[1])
+    pocet_dni = posledni_den.day
+
+    aktivni = repo.aktivni_zamestnanci_v_obdobi(conn, prvni_den, posledni_den)
+    jmeno_podle_id = {z.id: z.jmeno for z in aktivni}
+    celkem_aktivnich = len(aktivni)
+
+    nastaveni = repo.nastaveni_pro_profil(conn, profil)
+    minimum = (nastaveni.denni_min + nastaveni.nocni_min) if nastaveni else 0
+
+    polozky_podle_dne: dict[int, list[PolozkaPozadavku]] = {d: [] for d in range(1, pocet_dni + 1)}
+    blokovanych_podle_dne: dict[int, set[int]] = {d: set() for d in range(1, pocet_dni + 1)}
+
+    for n in repo.nedostupnosti_v_obdobi(conn, prvni_den, posledni_den):
+        jmeno = jmeno_podle_id.get(n.zamestnanec_id)
+        if jmeno is None:
+            continue
+        for den in dny_v_mesici(n.od, n.do, prvni_den, posledni_den):
+            polozky_podle_dne[den].append(
+                PolozkaPozadavku(
+                    id=n.id,
+                    zamestnanec_id=n.zamestnanec_id,
+                    jmeno=jmeno,
+                    typ_nazev=NAZEV_NEDOSTUPNOSTI.get(n.typ, n.typ),
+                    stav=n.stav,
+                )
+            )
+            # celodenní (ne jen "zákaz nočních" apod.) a ne zamítnuté -
+            # 'schvaleno' i 'podano' počítáme společně, ať widget ukazuje
+            # dostupnost "jako kdyby se schválilo úplně všechno".
+            if n.zakazana_smena is None and n.stav != "zamitnuto":
+                blokovanych_podle_dne[den].add(n.zamestnanec_id)
+
+    dny_widgetu = []
+    for den in range(1, pocet_dni + 1):
+        volnych = celkem_aktivnich - len(blokovanych_podle_dne[den])
+        dny_widgetu.append(
+            DenPozadavku(
+                den=den,
+                polozky=sorted(polozky_podle_dne[den], key=lambda p: p.id, reverse=True),
+                volnych_pri_schvaleni=volnych,
+                minimum=minimum,
+                riziko=volnych < minimum,
+            )
+        )
+    return dny_widgetu

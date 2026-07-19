@@ -10,7 +10,7 @@ from db.auth import hashovat_heslo
 from db.models import NastaveniProfilu
 from solver.schedule import Schedule
 from web.app import app
-from web.mrizka import sestavit_mrizku
+from web.mrizka import sestavit_mrizku, sestavit_pozadavky_widget
 
 
 @pytest.fixture
@@ -311,6 +311,61 @@ def test_sestavit_mrizku_svz_neni_editovatelna(conn):
     assert mrizka.radky[0].bunky[4].editovatelna is False
 
 
+# --- sestavit_pozadavky_widget (úkol 9d: kalendářové widgety požadavků) ---
+
+def test_widget_ukazuje_polozky_bez_ohledu_na_typ_a_stav(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 5), date(2026, 8, 5), "DOV")
+    repo.pridat_pozadavek(conn, id_, date(2026, 8, 5), date(2026, 8, 5), "chřipka", typ="NEM")
+
+    dny = sestavit_pozadavky_widget(conn, 2026, 8)
+    den5 = dny[4]
+    assert den5.den == 5
+    assert {p.stav for p in den5.polozky} == {"schvaleno", "podano"}
+    assert {p.typ_nazev for p in den5.polozky} == {"Dovolená", "Nemoc"}
+
+
+def test_widget_nepocita_zamitnute_do_obsazenosti(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    poz_id = repo.pridat_pozadavek(conn, id_, date(2026, 8, 5), date(2026, 8, 5), "x")
+    repo.zamitnout_pozadavek(conn, poz_id)
+
+    dny = sestavit_pozadavky_widget(conn, 2026, 8)
+    den5 = dny[4]
+    assert len(den5.polozky) == 1  # pořád vidět v přehledu
+    assert den5.volnych_pri_schvaleni == 1  # ale nesnižuje dostupnost
+
+
+def test_widget_castecny_den_nesnizuje_dostupnost(conn):
+    id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_nedostupnost(
+        conn, id_, date(2026, 8, 5), date(2026, 8, 5), "POZADAVEK", zakazana_smena="N"
+    )
+
+    dny = sestavit_pozadavky_widget(conn, 2026, 8)
+    assert dny[4].volnych_pri_schvaleni == 1
+
+
+def test_widget_riziko_pod_minimem(conn):
+    id_a = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
+    repo.pridat_zamestnance(conn, "Bara", date(2020, 1, 1))
+    repo.ulozit_nastaveni(
+        conn,
+        NastaveniProfilu(
+            profil="normalni", denni_min=1, denni_max=2, nocni_min=1, nocni_max=2,
+            max_v_rade=3, max_smen_mesic=16,
+        ),
+    )
+    repo.pridat_nedostupnost(conn, id_a, date(2026, 8, 5), date(2026, 8, 5), "DOV")
+
+    dny = sestavit_pozadavky_widget(conn, 2026, 8)
+    den5 = dny[4]
+    assert den5.minimum == 2
+    assert den5.volnych_pri_schvaleni == 1
+    assert den5.riziko is True
+    assert dny[5].riziko is False  # den bez nedostupnosti - 2 volní, na hraně minima
+
+
 # --- HTTP vrstva: role a měsíc (viz zadani-faze3-web.md, úkol 3) ---
 
 @pytest.fixture
@@ -384,14 +439,45 @@ def test_admin_ma_navigaci_na_jiny_mesic(klient):
     assert "další" in odpoved.text
 
 
-def test_rozpis_zkracuje_pozadavek_na_poz(klient):
-    # nález: POZADAVEK se dřív vypisoval celý a přetékal mimo buňku;
-    # zkratka je navíc malými písmeny (poz), ať v buňce nekřičí přes D/N
+# --- widgety požadavků pod mřížkou (úkol 9d) ---
+
+def test_nahled_vidi_widget_podat_pozadavek_ale_ne_spravu(klient):
+    _prihlasit(klient, "nahled", "tajneheslo2")
+    odpoved = klient.get("/rozpis?mesic=2026-08")
+    assert 'id="kalendar-podat"' in odpoved.text
+    assert 'id="kalendar-sprava"' not in odpoved.text
+    assert "Schválit nekonfliktní" not in odpoved.text
+
+
+def test_admin_vidi_oba_widgety(klient):
     _prihlasit(klient, "admin", "tajneheslo")
     odpoved = klient.get("/rozpis?mesic=2026-08")
-    assert ">poz<" in odpoved.text
-    assert "POZADAVEK" not in odpoved.text
-    assert 'title="Požadavek"' in odpoved.text
+    assert 'id="kalendar-podat"' in odpoved.text
+    assert 'id="kalendar-sprava"' in odpoved.text
+    assert "Schválit nekonfliktní" in odpoved.text
+
+
+def test_rozpis_nema_odkaz_na_samostatnou_stranku_pozadavku(klient):
+    # úkol 9d: "žádné menu" - požadavky žijí jako widget pod mřížkou,
+    # ne jako samostatná položka v navigaci (na rozdíl od Rozpis/Přepis).
+    _prihlasit(klient, "admin", "tajneheslo")
+    odpoved = klient.get("/rozpis?mesic=2026-08")
+    nav_html = odpoved.text.split('<nav class="nav">')[1].split("</nav>")[0]
+    assert "/pozadavky" not in nav_html
+
+
+def test_rozpis_zkracuje_pozadavek_na_poz(klient):
+    # nález: POZADAVEK se dřív vypisoval celý a přetékal mimo buňku;
+    # zkratka je navíc malými písmeny (poz), ať v buňce nekřičí přes D/N.
+    # Mimo mřížku (úkol 9d: select typu ve widgetu Podat požadavek) se
+    # kód POZADAVEK jako hodnota <option> objevit smí - kontrola se proto
+    # omezuje jen na samotnou tabulku mřížky.
+    _prihlasit(klient, "admin", "tajneheslo")
+    odpoved = klient.get("/rozpis?mesic=2026-08")
+    mrizka_html = odpoved.text.split('<div class="mrizka-obal">')[1].split("</table>")[0]
+    assert ">poz<" in mrizka_html
+    assert "POZADAVEK" not in mrizka_html
+    assert 'title="Požadavek"' in mrizka_html
 
 
 def test_rozpis_zobrazuje_radek_obsazeni(klient):

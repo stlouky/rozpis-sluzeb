@@ -7,6 +7,8 @@ rozpisu, správa zaměstnanců a další funkčnost přibudou v dalších úkole
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import os
 import secrets
 import sqlite3
@@ -22,7 +24,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.background import BackgroundTask
 
 from db import repository as repo
-from db.bridge import config_pro_mesic, schedule_z_db
+from db.bridge import config_pro_mesic, schedule_z_db, schvalit_nekonfliktni
 from db.cesta import vychozi_cesta_db
 from db.models import NastaveniProfilu, Nedostupnost, Uzivatel, Zamestnanec
 from solver.core import NelzeSestavitError, generate_schedule
@@ -41,7 +43,12 @@ from .auth import (
 )
 from .db import overit_databazi, ziskat_pripojeni
 from .diff import sestavit_diff
-from .mrizka import NAZEV_NEDOSTUPNOSTI, TYPY_NEDOSTUPNOSTI_V_CYKLU, sestavit_mrizku
+from .mrizka import (
+    NAZEV_NEDOSTUPNOSTI,
+    TYPY_NEDOSTUPNOSTI_V_CYKLU,
+    sestavit_mrizku,
+    sestavit_pozadavky_widget,
+)
 from .prepis import sestavit_prepis
 
 ROOT = Path(__file__).resolve().parent
@@ -144,6 +151,24 @@ def _sousedni_mesice(rok: int, mes: int) -> tuple[str, str]:
     return f"{predchozi_rok}-{predchozi_mes:02d}", f"{dalsi_rok}-{dalsi_mes:02d}"
 
 
+def _bezpecny_json(data) -> str:
+    """json.dumps s escapovaným '</' - vkládá se přímo do <script> tagu
+    (viz mrizka.html), kde by řetězec '</script>' v datech (jméno/popis)
+    jinak mohl tag předčasně ukončit."""
+    return json.dumps(data).replace("</", "<\\/")
+
+
+def _bezpecny_navrat(navrat: str, vychozi: str) -> str:
+    """Widgety požadavků (úkol 9d) žijí na /rozpis, ale POST routy pro
+    podání/schválení/zamítnutí zůstávají sdílené s /pozadavky - navrat
+    říká, kam se vrátit po odeslání. Jen relativní cesta v appce (žádné
+    "//" - protokol-relativní adresa by mohla vést mimo appku), jinak
+    vychozi."""
+    if navrat.startswith("/") and not navrat.startswith("//"):
+        return navrat
+    return vychozi
+
+
 def _vykreslit_rozpis(
     request: Request,
     conn: sqlite3.Connection,
@@ -159,6 +184,8 @@ def _vykreslit_rozpis(
     na dvou místech dvakrát jinak."""
     mrizka = sestavit_mrizku(conn, rok, mes, je_admin=je_admin)
     predchozi_mesic, dalsi_mesic = _sousedni_mesice(rok, mes)
+    mesic_str = f"{rok}-{mes:02d}"
+    dny_pozadavku = sestavit_pozadavky_widget(conn, rok, mes)
     kontext = {
         "uzivatel": uzivatel,
         "je_admin": je_admin,
@@ -175,6 +202,11 @@ def _vykreslit_rozpis(
         "ma_zamcene_smeny": False,
         "beze_zmeny": False,
         "hodnoty_bunky": HODNOTY_BUNKY,
+        # --- úkol 9d: kalendářové widgety požadavků pod mřížkou ---
+        "mesic_str": mesic_str,
+        "pozadavky_widget_json": _bezpecny_json([dataclasses.asdict(d) for d in dny_pozadavku]),
+        "pozadavky_zamestnanci": repo.aktivni_zamestnanci(conn, date.today()),
+        "pozadavky_typy": NAZEV_NEDOSTUPNOSTI,
     }
     kontext.update(extra)
     return sablony.TemplateResponse(request, "mrizka.html", kontext)
@@ -747,7 +779,7 @@ def pozadavky_seznam(
         {
             "uzivatel": uzivatel,
             "je_admin": uzivatel.role == "admin",
-            # úkol 9c: žádný typový filtr - stránka ukazuje obsazenost
+            # úkol 9d: žádný typový filtr - stránka ukazuje obsazenost
             # napříč všemi typy, ne jen samoobslužný POZADAVEK.
             "pozadavky": repo.vsechny_nedostupnosti(conn),
             "jmeno_podle_id": jmeno_podle_id,
@@ -782,9 +814,11 @@ def pozadavek_novy_odeslani(
     do: date = Form(...),
     typ: str = Form("POZADAVEK"),
     popis: str = Form(""),
+    navrat: str = Form("/pozadavky"),
     uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni),
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
+    cil = _bezpecny_navrat(navrat, "/pozadavky")
     _zamestnanec_nebo_404(conn, zamestnanec_id)
     try:
         repo.pridat_pozadavek(conn, zamestnanec_id, od, do, popis.strip() or None, typ=typ)
@@ -800,12 +834,12 @@ def pozadavek_novy_odeslani(
             },
             status_code=status.HTTP_400_BAD_REQUEST,
         )
-    return RedirectResponse(url="/pozadavky", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=cil, status_code=status.HTTP_303_SEE_OTHER)
 
 
 def _pozadavek_nebo_404(conn: sqlite3.Connection, pozadavek_id: int) -> Nedostupnost:
     """Schválit/zamítnout smí jen položku, co na to čeká - stav='podano'
-    (úkol 9c: dřív gatovalo typ POZADAVEK, ale self-service teď zakládá
+    (úkol 9d: dřív gatovalo typ POZADAVEK, ale self-service teď zakládá
     i skutečné typy DOV/NEM/... - rozhoduje stav, ne typ). 'podano' navíc
     ze své podstaty může vzniknout jen přes self-service (admin/CLI cesta
     zapisuje rovnou 'schvaleno'), takže tahle kontrola sama o sobě chrání
@@ -819,23 +853,44 @@ def _pozadavek_nebo_404(conn: sqlite3.Connection, pozadavek_id: int) -> Nedostup
 @app.post("/pozadavky/{pozadavek_id}/schvalit")
 def pozadavek_schvalit(
     pozadavek_id: int,
+    navrat: str = Form("/pozadavky"),
     uzivatel: Uzivatel = Depends(vyzadovat_admina),
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
     _pozadavek_nebo_404(conn, pozadavek_id)
     repo.schvalit_pozadavek(conn, pozadavek_id)
-    return RedirectResponse(url="/pozadavky", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(
+        url=_bezpecny_navrat(navrat, "/pozadavky"), status_code=status.HTTP_303_SEE_OTHER
+    )
 
 
 @app.post("/pozadavky/{pozadavek_id}/zamitnout")
 def pozadavek_zamitnout(
     pozadavek_id: int,
+    navrat: str = Form("/pozadavky"),
     uzivatel: Uzivatel = Depends(vyzadovat_admina),
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
     _pozadavek_nebo_404(conn, pozadavek_id)
     repo.zamitnout_pozadavek(conn, pozadavek_id)
-    return RedirectResponse(url="/pozadavky", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(
+        url=_bezpecny_navrat(navrat, "/pozadavky"), status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@app.post("/rozpis/pozadavky/schvalit-nekonfliktni")
+def rozpis_pozadavky_schvalit_nekonfliktni(
+    mesic: str = Form(...),
+    profil: str = Form("normalni"),
+    uzivatel: Uzivatel = Depends(vyzadovat_admina),
+    conn: sqlite3.Connection = Depends(ziskat_pripojeni),
+):
+    """Tlačítko "Schválit nekonfliktní" ve widgetu Správa požadavků
+    (úkol 9d) - viz db.bridge.schvalit_nekonfliktni pro samotnou
+    heuristiku (jen orientační, ne záruka proveditelnosti)."""
+    rok, mes = _rozlozit_mesic(mesic)
+    schvalit_nekonfliktni(conn, rok, mes, profil=profil)
+    return RedirectResponse(url=f"/rozpis?mesic={mesic}", status_code=status.HTTP_303_SEE_OTHER)
 
 
 # --- úkol 5: admin - parametry pravidel (profily normalni/krizovy) ---
