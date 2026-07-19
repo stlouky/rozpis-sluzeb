@@ -181,7 +181,8 @@
         <div class="pozadavky-kalendar" id="kalendar-podat"></div>
         <p class="pozadavky-legenda">
           <span class="pozadavky-znacka volno"></span>volno
-          <span class="pozadavky-znacka ma-pozadavky"></span>obsazeno
+          <span class="pozadavky-znacka niska"></span>1-2 požadavky
+          <span class="pozadavky-znacka nabito"></span>3+ nabito
           <span class="pozadavky-znacka vybrano"></span>vybráno
         </p>
         <div class="pozadavky-detail" id="detail-podat">Klikni na den v kalendáři - první klik začátek, druhý konec rozsahu (stejný den = jednodenní).</div>
@@ -288,8 +289,10 @@
     }
 
     // 7-sloupcová mřížka dnů měsíce. vykresliBunku(den, dataDne) vrací
-    // {trida}, klikNaDen(den) se zavolá po kliknutí (nepovinné). Vrátí
-    // mapu den -> DOM element (kvůli přebarvení po výběru).
+    // {trida, pocet} - pocet (nepovinné) se ukáže jako bublina vpravo
+    // dole (kolik položek ten den má). klikNaDen(den) se zavolá po
+    // kliknutí (nepovinné). Vrátí mapu den -> DOM element (kvůli
+    // přebarvení po výběru).
     function vykreslitKalendar(kontejner, vykresliBunku, klikNaDen) {
       kontejner.innerHTML = "";
       DNY_ZKRATKY.forEach(function (zkr) {
@@ -310,7 +313,10 @@
         var bunka = document.createElement("button");
         bunka.type = "button";
         bunka.className = "kalendar-den " + popis.trida;
-        bunka.innerHTML = '<span class="kalendar-cislo-dne">' + den + "</span>";
+        var htmlPocet = popis.pocet
+          ? '<span class="kalendar-pocet">' + popis.pocet + "&times;</span>"
+          : "";
+        bunka.innerHTML = '<span class="kalendar-cislo-dne">' + den + "</span>" + htmlPocet;
         bunka.setAttribute(
           "aria-label", den + ". " + MESIC + " - " + dataDne.polozky.length + " položek"
         );
@@ -334,7 +340,9 @@
       var detailPodat = document.getElementById("detail-podat");
 
       var bunkyPodat = vykreslitKalendar(kalendarPodat, function (den, dataDne) {
-        return { trida: dataDne.polozky.length > 0 ? "ma-pozadavky" : "volno" };
+        var pocet = dataDne.polozky.length;
+        var trida = pocet === 0 ? "volno" : pocet <= 2 ? "niska" : "nabito";
+        return { trida: trida, pocet: pocet };
       }, function (den) {
         if (vyberOd === null || vyberDo !== null) {
           vyberOd = den; vyberDo = null;
@@ -402,10 +410,11 @@
       }
 
       vykreslitKalendar(kalendarSprava, function (den, dataDne) {
-        if (dataDne.riziko) return { trida: "riziko" };
+        var pocet = dataDne.polozky.length;
+        if (dataDne.riziko) return { trida: "riziko", pocet: pocet };
         var cekaji = dataDne.polozky.some(function (p) { return p.stav === "podano"; });
-        if (cekaji) return { trida: "ma-pozadavky" };
-        return { trida: dataDne.polozky.length > 0 ? "vyrizeno" : "volno" };
+        if (cekaji) return { trida: "ma-pozadavky", pocet: pocet };
+        return { trida: pocet > 0 ? "vyrizeno" : "volno", pocet: pocet };
       }, function (den) {
         vykresliDetailSpravy(den);
       });

@@ -24,6 +24,14 @@
   /* Pastelová - NEM (nemoc) vlastní barva na přání, pro snazší nalezení
      v mřížce; tmavý --barva-text na ní zůstává dobře čitelný. */
   --barva-nem: #f6d4d9;
+
+  /* Decentní stupně vytíženosti dne ve widgetu "Podat požadavek" (kolik
+     požadavků už den má) - záměrně jemnější než --barva-nem/--barva-chyba,
+     ať se to nepřebíjí s významem barev v hlavní mřížce. */
+  --barva-pozadavek-nizko: #f3ead0;
+  --barva-pozadavek-nizko-okraj: #d6bf88;
+  --barva-pozadavek-nabito: #eecab3;
+  --barva-pozadavek-nabito-okraj: #cf9464;
 }
 
 * {
@@ -701,13 +709,14 @@ table.mrizka tfoot .radek-obsazeni td.porusena {
 }
 
 .kalendar-den {
+  position: relative;
   height: 2.8rem;
   border: 1px solid var(--barva-ramecek);
   border-radius: 5px;
   background: var(--barva-pozadi);
   cursor: pointer;
   font: inherit;
-  padding: 2px;
+  padding: 0;
   transition: border-color 0.1s ease-in-out;
 }
 
@@ -716,9 +725,33 @@ table.mrizka tfoot .radek-obsazeni td.porusena {
 }
 
 .kalendar-cislo-dne {
+  position: absolute;
+  top: 3px;
+  left: 6px;
   font-size: 0.85rem;
   color: var(--barva-text);
   font-weight: 500;
+}
+
+/* Bublina s počtem položek dne - vpravo dole, ať nepřekáží číslu dne. */
+.kalendar-pocet {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #6b6155;
+  opacity: 0.85;
+}
+
+.kalendar-den.niska {
+  background: var(--barva-pozadavek-nizko);
+  border-color: var(--barva-pozadavek-nizko-okraj);
+}
+
+.kalendar-den.nabito {
+  background: var(--barva-pozadavek-nabito);
+  border-color: var(--barva-pozadavek-nabito-okraj);
 }
 
 .kalendar-den.ma-pozadavky {
@@ -767,6 +800,16 @@ table.mrizka tfoot .radek-obsazeni td.porusena {
   border-color: #e0c368;
 }
 
+.pozadavky-znacka.niska {
+  background: var(--barva-pozadavek-nizko);
+  border-color: var(--barva-pozadavek-nizko-okraj);
+}
+
+.pozadavky-znacka.nabito {
+  background: var(--barva-pozadavek-nabito);
+  border-color: var(--barva-pozadavek-nabito-okraj);
+}
+
 .pozadavky-znacka.riziko {
   background: #f6d4d4;
   border-color: var(--barva-chyba);
@@ -804,4 +847,96 @@ table.mrizka tfoot .radek-obsazeni td.porusena {
 
 .pozadavek-akce-forma button {
   margin-left: 0.3rem;
+}
+
+/* --- mobil (telefon na výšku) --- */
+
+@media (max-width: 640px) {
+  body {
+    padding: 0.75rem 0.75rem 2rem;
+  }
+
+  .hlavicka {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+    padding: 0.75rem 1rem;
+    text-align: center;
+  }
+
+  .hlavicka nav {
+    justify-content: center;
+  }
+
+  .mesic-nav {
+    gap: 0.5rem;
+  }
+
+  .mesic-nav h1 {
+    font-size: 1.15rem;
+  }
+
+  .formular-generovani {
+    flex-wrap: wrap;
+  }
+
+  .mrizka-obal {
+    padding: 0.5rem;
+    border-radius: 6px;
+  }
+
+  .legenda {
+    font-size: 0.78rem;
+    padding: 0.6rem 0.8rem;
+    gap: 0.4rem 0.7rem;
+  }
+
+  .pozadavky-widgety {
+    gap: 1rem;
+  }
+
+  .widget-pozadavek {
+    min-width: 0;
+    max-width: none;
+    padding: 0.65rem 0.8rem 0.8rem;
+  }
+
+  .pozadavek-vyber-radek {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .pozadavek-vyber-radek label {
+    width: 100%;
+  }
+
+  .pozadavek-vyber-radek select {
+    width: 100%;
+  }
+
+  .pozadavky-kalendar {
+    gap: 2px;
+  }
+
+  .kalendar-den {
+    height: 2.5rem;
+  }
+
+  .kalendar-cislo-dne {
+    font-size: 0.78rem;
+  }
+
+  .kalendar-pocet {
+    font-size: 0.58rem;
+  }
+
+  .pozadavky-sprava-hlavicka {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .prihlaseni {
+    margin: 2.5rem 1rem;
+    padding: 1.25rem;
+  }
 }
