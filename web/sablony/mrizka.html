@@ -288,6 +288,13 @@
       return ROK + "-" + String(MESIC).padStart(2, "0") + "-" + String(den).padStart(2, "0");
     }
 
+    // Zamítnuté požadavky se v DB nemažou (audit trail - stejně jako na
+    // /pozadavky), ale nic neblokují, takže by neměly dělat den vizuálně
+    // "obsazenější" - ani v bublině s počtem, ani v barvě vytíženosti.
+    function pocetAktivnich(dataDne) {
+      return dataDne.polozky.filter(function (p) { return p.stav !== "zamitnuto"; }).length;
+    }
+
     // 7-sloupcová mřížka dnů měsíce. vykresliBunku(den, dataDne) vrací
     // {trida, pocet} - pocet (nepovinné) se ukáže jako bublina vpravo
     // dole (kolik položek ten den má). klikNaDen(den) se zavolá po
@@ -340,7 +347,7 @@
       var detailPodat = document.getElementById("detail-podat");
 
       var bunkyPodat = vykreslitKalendar(kalendarPodat, function (den, dataDne) {
-        var pocet = dataDne.polozky.length;
+        var pocet = pocetAktivnich(dataDne);
         var trida = pocet === 0 ? "volno" : pocet <= 2 ? "niska" : "nabito";
         return { trida: trida, pocet: pocet };
       }, function (den) {
@@ -410,11 +417,11 @@
       }
 
       vykreslitKalendar(kalendarSprava, function (den, dataDne) {
-        var pocet = dataDne.polozky.length;
+        var pocet = pocetAktivnich(dataDne);
         if (dataDne.riziko) return { trida: "riziko", pocet: pocet };
         var cekaji = dataDne.polozky.some(function (p) { return p.stav === "podano"; });
         if (cekaji) return { trida: "ma-pozadavky", pocet: pocet };
-        return { trida: pocet > 0 ? "vyrizeno" : "volno", pocet: pocet };
+        return { trida: dataDne.polozky.length > 0 ? "vyrizeno" : "volno", pocet: pocet };
       }, function (den) {
         vykresliDetailSpravy(den);
       });
