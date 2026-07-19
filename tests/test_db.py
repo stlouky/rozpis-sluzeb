@@ -1155,13 +1155,17 @@ def test_zamitnout_pozadavek(conn):
     assert repo.nedostupnost_podle_id(conn, poz_id).stav == "zamitnuto"
 
 
-def test_pozadavky_vsechny_vraci_jen_typ_pozadavek(conn):
+def test_pridat_pozadavek_s_typem_nem_ma_stav_podano(conn):
+    # úkol 9c: self-service smí zakládat skutečné typy, ne jen POZADAVEK -
+    # rozhoduje stav, ne typ.
     id_ = repo.pridat_zamestnance(conn, "Alena", date(2020, 1, 1))
-    repo.pridat_nedostupnost(conn, id_, date(2026, 8, 1), date(2026, 8, 2), "DOV")
-    poz_id = repo.pridat_pozadavek(conn, id_, date(2026, 8, 3), date(2026, 8, 4), "popis")
+    poz_id = repo.pridat_pozadavek(
+        conn, id_, date(2026, 8, 3), date(2026, 8, 4), "chřipka", typ="NEM"
+    )
 
-    pozadavky = repo.pozadavky_vsechny(conn)
-    assert [p.id for p in pozadavky] == [poz_id]
+    poz = repo.nedostupnost_podle_id(conn, poz_id)
+    assert poz.typ == "NEM"
+    assert poz.stav == "podano"
 
 
 def test_config_pro_mesic_ignoruje_podany_pozadavek(conn):

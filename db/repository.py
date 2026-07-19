@@ -333,18 +333,22 @@ def pridat_pozadavek(
     do: date,
     popis: str,
     zakazana_smena: str | None = None,
+    typ: str = "POZADAVEK",
 ) -> int:
-    """Samoobslužné podání požadavku (úkol 9b) - wrapper nad
-    pridat_nedostupnost s typ='POZADAVEK', stav='podano'. Do solveru se
-    nepromítne, dokud ho admin neschválí (viz db/bridge.py:config_pro_mesic).
-    Odmítne zaměstnance, který k datu 'od' není aktivní - sdílený
-    nahled/host účet nemá per-osobu identitu, takže tohle je jediná
-    kontrola, že požadavek dává smysl (viz zadani-faze3-web.md)."""
+    """Samoobslužné podání požadavku (úkol 9b, zobecněno na typ v úkolu 9c)
+    - wrapper nad pridat_nedostupnost se stav='podano'. Typ je libovolný
+    z TYPY_NEDOSTUPNOSTI (nemoc/dovolená/... jde stejnou cestou jako
+    obecný POZADAVEK) - rozhoduje stav, ne typ ani kdo záznam založil.
+    Do solveru se nepromítne, dokud ho admin neschválí (viz
+    db/bridge.py:config_pro_mesic). Odmítne zaměstnance, který k datu 'od'
+    není aktivní - sdílený nahled/host účet nemá per-osobu identitu, takže
+    tohle je jediná kontrola, že požadavek dává smysl (viz
+    zadani-faze3-web.md)."""
     aktivni_ids = {z.id for z in aktivni_zamestnanci_v_obdobi(conn, od, od)}
     if zamestnanec_id not in aktivni_ids:
         raise ValueError("Zaměstnanec k tomuto datu není aktivní.")
     return pridat_nedostupnost(
-        conn, zamestnanec_id, od, do, "POZADAVEK", popis, zakazana_smena, stav="podano"
+        conn, zamestnanec_id, od, do, typ, popis, zakazana_smena, stav="podano"
     )
 
 
@@ -356,16 +360,6 @@ def schvalit_pozadavek(conn: sqlite3.Connection, pozadavek_id: int) -> None:
 def zamitnout_pozadavek(conn: sqlite3.Connection, pozadavek_id: int) -> None:
     conn.execute("UPDATE nedostupnost SET stav = 'zamitnuto' WHERE id = ?", (pozadavek_id,))
     conn.commit()
-
-
-def pozadavky_vsechny(conn: sqlite3.Connection) -> list[Nedostupnost]:
-    """Všechny požadavky (typ POZADAVEK) bez ohledu na stav - pro stránku
-    /pozadavky (úkol 9b), na rozdíl od vsechny_nedostupnosti výš, která
-    vrací úplně všechny typy. Nejnovější první."""
-    radky = conn.execute(
-        "SELECT * FROM nedostupnost WHERE typ = 'POZADAVEK' ORDER BY od DESC, id DESC"
-    ).fetchall()
-    return [_nedostupnost_z_radku(r) for r in radky]
 
 
 def zrusit_nedostupnost(conn: sqlite3.Connection, nedostupnost_id: int) -> None:

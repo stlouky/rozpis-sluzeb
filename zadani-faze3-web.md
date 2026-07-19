@@ -234,8 +234,9 @@ mohli podle toho upravit vlastní požadavky - viz mockupy níž.
 - Akce schválit/zamítnout se nabízí jen u položek se `stav = 'podano'`.
   `web/app.py:_pozadavek_nebo_404` mění kontrolu z `typ != "POZADAVEK"`
   na `stav != "podano"` (schválit/zamítnout lze jen to, co čeká).
-  `pozadavky_vsechny` (přehled/kalendář) žádný typový ani jiný filtr
-  nepotřebuje - vrací všechno, řazení/zobrazení řeší šablona podle `stav`.
+  `pozadavky_vsechny()` bez typového filtru byla identická s existující
+  `vsechny_nedostupnosti()` (admin seznam, úkol 5) - zrušena, `/pozadavky`
+  ji jen volá přímo (žádná duplicitní funkce).
 - Formulář/widget "Podat požadavek" dostává výběr typu (DOV/NEM/OST/SVZ/
   POZADAVEK) - select, ne psaní (personál preferuje klikání před
   vyplňováním textu - jediné volné pole zůstává nepovinná poznámka).

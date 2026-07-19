@@ -19,7 +19,14 @@
     <label>Do
       <input type="date" name="do" required>
     </label>
-    <label>Popis
+    <label>Typ
+      <select name="typ" required>
+        {% for kod, nazev in typy.items() %}
+          <option value="{{ kod }}">{{ nazev }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Popis (nepovinné)
       <input type="text" name="popis" placeholder="např. volno na svatbu">
     </label>
     <button type="submit">Podat požadavek</button>

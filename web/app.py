@@ -747,7 +747,9 @@ def pozadavky_seznam(
         {
             "uzivatel": uzivatel,
             "je_admin": uzivatel.role == "admin",
-            "pozadavky": repo.pozadavky_vsechny(conn),
+            # úkol 9c: žádný typový filtr - stránka ukazuje obsazenost
+            # napříč všemi typy, ne jen samoobslužný POZADAVEK.
+            "pozadavky": repo.vsechny_nedostupnosti(conn),
             "jmeno_podle_id": jmeno_podle_id,
             "nazvy_stavu": NAZEV_STAVU_POZADAVKU,
         },
@@ -767,6 +769,7 @@ def pozadavek_novy_formular(
             "uzivatel": uzivatel,
             "chyba": None,
             "zamestnanci": repo.aktivni_zamestnanci(conn, date.today()),
+            "typy": NAZEV_NEDOSTUPNOSTI,
         },
     )
 
@@ -777,13 +780,14 @@ def pozadavek_novy_odeslani(
     zamestnanec_id: int = Form(...),
     od: date = Form(...),
     do: date = Form(...),
+    typ: str = Form("POZADAVEK"),
     popis: str = Form(""),
     uzivatel: Uzivatel = Depends(vyzadovat_prihlaseni),
     conn: sqlite3.Connection = Depends(ziskat_pripojeni),
 ):
     _zamestnanec_nebo_404(conn, zamestnanec_id)
     try:
-        repo.pridat_pozadavek(conn, zamestnanec_id, od, do, popis.strip() or None)
+        repo.pridat_pozadavek(conn, zamestnanec_id, od, do, popis.strip() or None, typ=typ)
     except ValueError as e:
         return sablony.TemplateResponse(
             request,
@@ -792,6 +796,7 @@ def pozadavek_novy_odeslani(
                 "uzivatel": uzivatel,
                 "chyba": str(e),
                 "zamestnanci": repo.aktivni_zamestnanci(conn, date.today()),
+                "typy": NAZEV_NEDOSTUPNOSTI,
             },
             status_code=status.HTTP_400_BAD_REQUEST,
         )
@@ -799,8 +804,14 @@ def pozadavek_novy_odeslani(
 
 
 def _pozadavek_nebo_404(conn: sqlite3.Connection, pozadavek_id: int) -> Nedostupnost:
+    """Schválit/zamítnout smí jen položku, co na to čeká - stav='podano'
+    (úkol 9c: dřív gatovalo typ POZADAVEK, ale self-service teď zakládá
+    i skutečné typy DOV/NEM/... - rozhoduje stav, ne typ). 'podano' navíc
+    ze své podstaty může vzniknout jen přes self-service (admin/CLI cesta
+    zapisuje rovnou 'schvaleno'), takže tahle kontrola sama o sobě chrání
+    před tím, aby se přes tuhle routu sáhlo na běžný admin záznam."""
     pozadavek = repo.nedostupnost_podle_id(conn, pozadavek_id)
-    if pozadavek is None or pozadavek.typ != "POZADAVEK":
+    if pozadavek is None or pozadavek.stav != "podano":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Požadavek neexistuje")
     return pozadavek
 

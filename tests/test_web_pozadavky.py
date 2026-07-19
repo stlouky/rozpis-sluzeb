@@ -58,7 +58,7 @@ def test_admin_smi_podat_pozadavek(klient):
     odpoved = klient.post("/pozadavky", data=_pozadavek_data(klient))
     assert odpoved.status_code == 200
 
-    pozadavky = repo.pozadavky_vsechny(_conn(klient))
+    pozadavky = repo.vsechny_nedostupnosti(_conn(klient))
     assert len(pozadavky) == 1
     assert pozadavky[0].stav == "podano"
     assert pozadavky[0].poznamka == "volno na svatbu"
@@ -67,7 +67,7 @@ def test_admin_smi_podat_pozadavek(klient):
 def test_nahled_smi_podat_pozadavek(klient_nahled):
     odpoved = klient_nahled.post("/pozadavky", data=_pozadavek_data(klient_nahled))
     assert odpoved.status_code == 200
-    assert len(repo.pozadavky_vsechny(_conn(klient_nahled))) == 1
+    assert len(repo.vsechny_nedostupnosti(_conn(klient_nahled))) == 1
 
 
 def test_podani_pozadavku_neexistujiciho_zamestnance_404(klient):
@@ -75,6 +75,19 @@ def test_podani_pozadavku_neexistujiciho_zamestnance_404(klient):
     data["zamestnanec_id"] = klient.id_alena + 999
     odpoved = klient.post("/pozadavky", data=data)
     assert odpoved.status_code == 404
+
+
+def test_podani_pozadavku_se_skutecnym_typem(klient):
+    # úkol 9c: self-service smí zakládat skutečné typy (NEM/DOV/...), ne
+    # jen obecný POZADAVEK.
+    data = _pozadavek_data(klient)
+    data["typ"] = "NEM"
+    odpoved = klient.post("/pozadavky", data=data)
+    assert odpoved.status_code == 200
+
+    pozadavky = repo.vsechny_nedostupnosti(_conn(klient))
+    assert pozadavky[0].typ == "NEM"
+    assert pozadavky[0].stav == "podano"
 
 
 def test_podani_pozadavku_neaktivniho_zamestnance_vrati_chybu(klient):
@@ -138,3 +151,24 @@ def test_admin_smi_zamitnout_pozadavek(klient):
 
 def test_schvalit_neexistujiciho_pozadavku_404(klient):
     assert klient.post("/pozadavky/999/schvalit").status_code == 404
+
+
+def test_schvalit_uz_vyrizeneho_pozadavku_404(klient):
+    # úkol 9c: guard kontroluje stav='podano', ne typ - jednou vyřízené
+    # (nebo běžný admin záznam, co nikdy 'podano' nebylo) se přes tuhle
+    # routu znovu sáhnout nedá.
+    conn = _conn(klient)
+    poz_id = repo.pridat_pozadavek(conn, klient.id_alena, date(2026, 8, 3), date(2026, 8, 4), "x")
+    repo.schvalit_pozadavek(conn, poz_id)
+    conn.close()
+
+    assert klient.post(f"/pozadavky/{poz_id}/schvalit").status_code == 404
+    assert klient.post(f"/pozadavky/{poz_id}/zamitnout").status_code == 404
+
+
+def test_schvalit_beznou_admin_nedostupnost_404(klient):
+    conn = _conn(klient)
+    ned_id = repo.pridat_nedostupnost(conn, klient.id_alena, date(2026, 8, 3), date(2026, 8, 4), "DOV")
+    conn.close()
+
+    assert klient.post(f"/pozadavky/{ned_id}/schvalit").status_code == 404
